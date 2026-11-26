@@ -360,8 +360,8 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         NSData *pngData = encoded ? [[NSData alloc] initWithBase64EncodedString:[encoded stringByReplacingOccurrencesOfString:@"\n" withString:@""] options:NSDataBase64DecodingIgnoreUnknownCharacters] : nil;
         image = pngData.length ? [UIImage imageWithData:pngData] : nil;
         if (image && pngData.length) {
-            [defaults setObject:pngData forKey:@"fi.overlayImageData"];
-            [defaults synchronize];
+            [NSUserDefaults.standardUserDefaults setObject:pngData forKey:@"fi.overlayImageData"];
+            [NSUserDefaults.standardUserDefaults synchronize];
             TCLog(@"Loaded bundled default image into preferences");
         } else {
             TCLog(@"Bundled default image could not be loaded");
