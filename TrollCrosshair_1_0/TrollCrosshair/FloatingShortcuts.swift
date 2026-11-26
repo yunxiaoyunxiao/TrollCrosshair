@@ -46,7 +46,7 @@ struct DisableFloatingIntent: AppIntent {
 @available(iOS 17.0, *)
 struct FloatingAppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
-        [
+        return [
             AppShortcut(
                 intent: ToggleFloatingIntent(),
                 phrases: [
