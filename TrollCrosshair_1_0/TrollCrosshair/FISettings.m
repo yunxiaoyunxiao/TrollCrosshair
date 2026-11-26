@@ -1,6 +1,17 @@
 #import "FISettings.h"
 #import <notify.h>
 
+static id FIReadMobilePreference(NSString *key) {
+    CFPropertyListRef value = CFPreferencesCopyValue((__bridge CFStringRef)key,
+                                                     CFSTR("com.trollcrosshair.app"),
+                                                     CFSTR("mobile"),
+                                                     kCFPreferencesAnyHost);
+    if (!value) {
+        value = CFPreferencesCopyAppValue((__bridge CFStringRef)key, CFSTR("com.trollcrosshair.app"));
+    }
+    return value ? CFBridgingRelease(value) : nil;
+}
+
 static NSString * const TCFloatingRefreshNotification = @"com.trollcrosshair.refresh";
 
 @implementation FISettings
@@ -13,12 +24,16 @@ static NSString * const TCFloatingRefreshNotification = @"com.trollcrosshair.ref
     return s;
 }
 - (void)reload {
-    NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
-    self.x = [d objectForKey:@"fi.x"] ? [d doubleForKey:@"fi.x"] : 0;
-    self.y = [d objectForKey:@"fi.y"] ? [d doubleForKey:@"fi.y"] : 0;
-    self.sizeScale = [d objectForKey:@"fi.sizeScale"] ? [d doubleForKey:@"fi.sizeScale"] : 100;
-    self.alpha = [d objectForKey:@"fi.alpha"] ? [d doubleForKey:@"fi.alpha"] : 0.85;
-    self.enabled = [d boolForKey:@"fi.enabled"];
+    id x = FIReadMobilePreference(@"fi.x");
+    id y = FIReadMobilePreference(@"fi.y");
+    id size = FIReadMobilePreference(@"fi.sizeScale");
+    id alpha = FIReadMobilePreference(@"fi.alpha");
+    id enabled = FIReadMobilePreference(@"fi.enabled");
+    self.x = x ? [x doubleValue] : 0;
+    self.y = y ? [y doubleValue] : 0;
+    self.sizeScale = size ? [size doubleValue] : 100;
+    self.alpha = alpha ? [alpha doubleValue] : 0.85;
+    self.enabled = enabled ? [enabled boolValue] : NO;
 }
 - (void)save {
     NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
