@@ -9,6 +9,12 @@
 #import <signal.h>
 #import <unistd.h>
 #import <dlfcn.h>
+#import <sys/types.h>
+
+#define POSIX_SPAWN_PERSONA_FLAGS_OVERRIDE 1
+extern int posix_spawnattr_set_persona_np(const posix_spawnattr_t *__restrict, uid_t, uint32_t);
+extern int posix_spawnattr_set_persona_uid_np(const posix_spawnattr_t *__restrict, uid_t);
+extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t *__restrict, uid_t);
 
 extern char **environ;
 static NSString * const TCFloatingRefreshNotification = @"com.trollcrosshair.refresh";
@@ -58,7 +64,12 @@ static NSURL *TCHUDPIDURL(void) {
     [self.window setHidden:NO];
     [self.window makeKeyAndVisible];
 
+    // Helium loads SpringBoardServices before resolving the private hosting class.
+    // Without this framework, objc_getClass may return nil and the HUD remains
+    // an ordinary app-local UIWindow instead of a BackBoard-hosted window.
+    dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices", RTLD_NOW | RTLD_GLOBAL);
     Class hostClass = objc_getClass("SBSAccessibilityWindowHostingController");
+    TCLog(@"HUD host bootstrap uid=%d euid=%d hostClass=%@ windowContext=%d", getuid(), geteuid(), hostClass, [self.window respondsToSelector:contextSelector]);
     SEL contextSelector = sel_registerName("_contextId");
     if (!hostClass || ![self.window respondsToSelector:contextSelector]) {
         TCLog(@"HUD hosting unavailable: hostClass=%@ contextSelector=%d", hostClass, [self.window respondsToSelector:contextSelector]);
@@ -167,9 +178,31 @@ static NSURL *TCHUDPIDURL(void) {
         TCLog(@"Cannot start HUD: executable path missing");
         return;
     }
+    // Match Helium's launch model: the HUD must run under the platform/root
+    // persona so BackBoard accepts its system-level hosted window. A normal
+    // app-persona child can launch successfully yet remain confined to the
+    // app's ordinary window scene, which looks like "no cross-app overlay".
+    posix_spawnattr_t attributes;
+    int attrResult = posix_spawnattr_init(&attributes);
+    if (attrResult != 0) {
+        TCLog(@"HUD spawn attr init failed: %d", attrResult);
+        return;
+    }
+    int personaResult = posix_spawnattr_set_persona_np(&attributes, 99, POSIX_SPAWN_PERSONA_FLAGS_OVERRIDE);
+    int uidResult = posix_spawnattr_set_persona_uid_np(&attributes, 0);
+    int gidResult = posix_spawnattr_set_persona_gid_np(&attributes, 0);
+    int groupResult = posix_spawnattr_setpgroup(&attributes, 0);
+    int flagsResult = posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETPGROUP);
+    if (personaResult || uidResult || gidResult || groupResult || flagsResult) {
+        TCLog(@"HUD persona setup failed persona=%d uid=%d gid=%d pgroup=%d flags=%d",
+              personaResult, uidResult, gidResult, groupResult, flagsResult);
+        posix_spawnattr_destroy(&attributes);
+        return;
+    }
     char *argv[] = {(char *)executable.UTF8String, "-hud", NULL};
     pid_t pid = 0;
-    int result = posix_spawn(&pid, executable.fileSystemRepresentation, NULL, NULL, argv, environ);
+    int result = posix_spawn(&pid, executable.fileSystemRepresentation, NULL, &attributes, argv, environ);
+    posix_spawnattr_destroy(&attributes);
     if (result != 0) {
         TCLog(@"posix_spawn HUD failed: %d", result);
         return;
