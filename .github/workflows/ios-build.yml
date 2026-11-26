@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: trollcrosshair-ios-hostedhud-${{ github.ref }}
+  group: trollcrosshair-ios-hostedhud-v3-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
