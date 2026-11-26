@@ -1,0 +1,42 @@
+name: iOS Build
+
+on:
+  push:
+    branches:
+      - floatimage-build-setup
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build FloatImage
+        run: |
+          xcodebuild \
+            -project TrollCrosshair_1_0/TrollCrosshair.xcodeproj \
+            -scheme FloatImage \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package app
+        run: |
+          mkdir -p build/artifacts
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/DerivedData/Build/Products/Release-iphoneos/FloatImage.app \
+            build/artifacts/FloatImage-unsigned.zip
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FloatImage-unsigned-app
+          path: build/artifacts/FloatImage-unsigned.zip
+          if-no-files-found: error
