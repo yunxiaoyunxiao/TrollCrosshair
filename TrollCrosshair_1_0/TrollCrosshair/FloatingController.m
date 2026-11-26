@@ -224,6 +224,40 @@ static NSURL *TCHUDPIDURL(void) {
     self.hudPID = 0;
     [NSFileManager.defaultManager removeItemAtURL:TCHUDPIDURL() error:nil];
 }
+- (BOOL)performShortcutCommand:(NSString *)command {
+    NSString *normalized = command.lowercaseString;
+    [FISettings.shared reload];
+
+    CFPropertyListRef copiedValue = CFPreferencesCopyAppValue(CFSTR("fi.overlayImageData"), CFSTR("com.trollcrosshair.app"));
+    NSData *imageData = copiedValue ? CFBridgingRelease(copiedValue) : nil;
+    if (![imageData isKindOfClass:NSData.class] || imageData.length == 0) {
+        imageData = [NSUserDefaults.standardUserDefaults dataForKey:@"fi.overlayImageData"];
+    }
+    BOOL hasImage = imageData.length > 0;
+    BOOL nextState = FISettings.shared.isEnabled;
+
+    if ([normalized isEqualToString:@"toggle"]) {
+        nextState = !nextState;
+    } else if ([normalized isEqualToString:@"on"] || [normalized isEqualToString:@"show"]) {
+        nextState = YES;
+    } else if ([normalized isEqualToString:@"off"] || [normalized isEqualToString:@"hide"]) {
+        nextState = NO;
+    } else {
+        TCLog(@"Shortcut command rejected: %@", normalized);
+        return NO;
+    }
+
+    if (nextState && !hasImage) {
+        TCLog(@"Shortcut enable ignored: no saved overlay image");
+        return NO;
+    }
+
+    [self setEnabled:nextState];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"TrollCrosshairStateChanged" object:nil];
+    TCLog(@"Shortcut command=%@ applied enabled=%d", normalized, nextState);
+    return YES;
+}
+
 - (void)setEnabled:(BOOL)enabled {
     FISettings.shared.enabled = enabled;
     [FISettings.shared save];
