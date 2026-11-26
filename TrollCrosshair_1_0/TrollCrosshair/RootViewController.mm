@@ -1,13 +1,10 @@
 #import "RootViewController.h"
-#import <PhotosUI/PhotosUI.h>
 #import <notify.h>
-#import <ImageIO/ImageIO.h>
-#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import "TCLogger.h"
 #import "FISettings.h"
 #import "FloatingController.h"
 
-@interface RootViewController () <PHPickerViewControllerDelegate>
+@interface RootViewController () <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
 @property(nonatomic,strong) UIView *previewContainer;
 @property(nonatomic,strong) UIImageView *preview;
 @property(nonatomic,strong) UILabel *status;
@@ -138,103 +135,34 @@
 }
 
 - (void)pickImage {
-    // PHPicker is a system-mediated picker. Do not touch PHPhotoLibrary or PHAsset:
-    // the picker already grants this app access to the selected representation.
-    PHPickerConfiguration *configuration = [[PHPickerConfiguration alloc] init];
-    configuration.filter = PHPickerFilter.imagesFilter;
-    configuration.selectionLimit = 1;
-    configuration.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;
-
-    PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:configuration];
+    // Use UIKit's long-established photo-library controller here. The previous
+    // PHPicker + NSItemProvider file-representation chain was the only new,
+    // asynchronous path introduced immediately before the reported crash.
+    UIImagePickerController *picker = [UIImagePickerController new];
+    picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+    picker.mediaTypes = @[@"public.image"];
+    picker.allowsEditing = NO;
     picker.delegate = self;
     [self presentViewController:picker animated:YES completion:nil];
 }
 
-- (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
+- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
     [picker dismissViewControllerAnimated:YES completion:nil];
-
-    NSItemProvider *provider = results.firstObject.itemProvider;
-    if (!provider) {
-        self.status.text = @"未选择图片";
-        return;
-    }
-
-    NSMutableArray<NSString *> *imageTypes = [NSMutableArray array];
-    UTType *genericImageType = [UTType typeWithIdentifier:@"public.image"];
-    for (NSString *identifier in provider.registeredTypeIdentifiers) {
-        UTType *type = [UTType typeWithIdentifier:identifier];
-        if (type && genericImageType && [type conformsToType:genericImageType]) {
-            [imageTypes addObject:identifier];
-        }
-    }
-
-    // Prefer common lossless/standard representations, then try every remaining
-    // image representation actually advertised by this provider.
-    NSArray<NSString *> *priority = @[@"public.png", @"public.jpeg", @"public.heic", @"public.image"];
-    [imageTypes sortUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
-        NSUInteger ai = [priority indexOfObject:a];
-        NSUInteger bi = [priority indexOfObject:b];
-        if (ai == NSNotFound) ai = NSUIntegerMax;
-        if (bi == NSNotFound) bi = NSUIntegerMax;
-        return ai < bi ? NSOrderedAscending : (ai > bi ? NSOrderedDescending : NSOrderedSame);
-    }];
-
-    TCLog(@"Picker image representations: %@", imageTypes);
-    self.status.text = @"正在读取图片…";
-    if (imageTypes.count == 0) {
-        self.status.text = @"系统没有提供可读取的图片格式";
-        TCLog(@"Picker provider advertised no image representations");
-        return;
-    }
-    [self loadImageFromProvider:provider types:imageTypes index:0];
+    self.status.text = self.imageURL ? @"图片已就绪" : @"请选择图片";
 }
 
-- (void)loadImageFromProvider:(NSItemProvider *)provider types:(NSArray<NSString *> *)types index:(NSUInteger)index {
-    if (index >= types.count) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            self.status.text = @"图片读取失败：系统提供的图片文件无法解码，请尝试重新选择";
-        });
-        TCLog(@"All advertised image representations failed");
-        return;
-    }
-
-    NSString *typeIdentifier = types[index];
-    TCLog(@"Requesting picker file representation: %@", typeIdentifier);
-    __weak typeof(self) weakSelf = self;
-    [provider loadFileRepresentationForTypeIdentifier:typeIdentifier completionHandler:^(NSURL *fileURL, NSError *error) {
-        __strong typeof(weakSelf) self = weakSelf;
-        if (!self) return;
-
-        UIImage *image = nil;
-        if (fileURL) {
-            // The URL is temporary and is deleted as soon as this completion
-            // handler returns. Decode it here, before leaving the callback.
-            NSDictionary *options = @{
-                (__bridge NSString *)kCGImageSourceCreateThumbnailFromImageAlways: @YES,
-                (__bridge NSString *)kCGImageSourceCreateThumbnailWithTransform: @YES,
-                (__bridge NSString *)kCGImageSourceThumbnailMaxPixelSize: @2048
-            };
-            CGImageSourceRef source = CGImageSourceCreateWithURL((__bridge CFURLRef)fileURL, NULL);
-            if (source) {
-                CGImageRef thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, (__bridge CFDictionaryRef)options);
-                if (thumbnail) {
-                    image = [UIImage imageWithCGImage:thumbnail];
-                    CGImageRelease(thumbnail);
-                }
-                CFRelease(source);
-            }
-        }
-
-        if (image) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                TCLog(@"Picker image decoded successfully from %@", typeIdentifier);
-                [self processSelectedImage:image];
-            });
+- (void)imagePickerController:(UIImagePickerController *)picker
+didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
+    UIImage *image = info[UIImagePickerControllerOriginalImage];
+    NSURL *originalURL = info[UIImagePickerControllerImageURL];
+    [picker dismissViewControllerAnimated:YES completion:^{
+        if (!image) {
+            self.status.text = @"没有取得图片，请重新选择";
+            TCLog(@"UIImagePicker returned no original UIImage; info keys=%@", info.allKeys);
             return;
         }
-
-        TCLog(@"Picker representation failed type=%@ error=%@", typeIdentifier, error);
-        [self loadImageFromProvider:provider types:types index:index + 1];
+        TCLog(@"UIImagePicker selected image size=%@ url=%@", NSStringFromCGSize(image.size), originalURL);
+        [self processSelectedImage:image];
     }];
 }
 
@@ -245,49 +173,75 @@
         return;
     }
 
-    // The ImageIO picker path has already applied orientation and capped the
-    // longest edge at 2048 px. Avoid a second UIGraphicsImageRenderer pass:
-    // it is unnecessary and can trigger UIKit rendering failures for some
-    // provider-backed images on older iOS releases.
-    @try {
-        NSData *pngData = UIImagePNGRepresentation(image);
-        if (!pngData.length) {
-            self.status.text = @"图片编码失败，请换一张图片";
-            TCLog(@"UIImagePNGRepresentation returned empty data size=%@", NSStringFromCGSize(image.size));
-            return;
-        }
+    self.status.text = @"正在处理图片…";
+    // Work off the main thread. Normalize UIImage orientation and cap large
+    // camera-roll images before PNG encoding to avoid a memory spike on iPad.
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        @autoreleasepool {
+            UIImage *normalized = image;
+            CGFloat longest = MAX(image.size.width, image.size.height);
+            CGFloat factor = longest > 2048.0 ? 2048.0 / longest : 1.0;
+            if (factor < 1.0 || image.imageOrientation != UIImageOrientationUp) {
+                CGSize target = CGSizeMake(MAX(1.0, floor(image.size.width * factor)),
+                                           MAX(1.0, floor(image.size.height * factor)));
+                UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat defaultFormat];
+                format.scale = 1.0;
+                format.opaque = NO;
+                UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:target format:format];
+                normalized = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+                    [image drawInRect:(CGRect){CGPointZero, target}];
+                }];
+            }
 
-        NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory
-                                                                  inDomains:NSUserDomainMask].firstObject;
-        NSError *writeError = nil;
-        if (![NSFileManager.defaultManager createDirectoryAtURL:directory
-                                    withIntermediateDirectories:YES
-                                                     attributes:nil
-                                                          error:&writeError]) {
-            self.status.text = @"无法保存图片";
-            TCLog(@"Create Application Support directory failed: %@", writeError);
-            return;
-        }
+            NSData *pngData = UIImagePNGRepresentation(normalized);
+            if (!pngData.length) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    weakSelf.status.text = @"图片编码失败，请换一张图片";
+                    TCLog(@"UIImagePNGRepresentation returned empty data");
+                });
+                return;
+            }
 
-        NSURL *savedURL = [directory URLByAppendingPathComponent:@"TrollCrosshair.png"];
-        if (![pngData writeToURL:savedURL options:NSDataWritingAtomic error:&writeError]) {
-            self.status.text = @"图片保存失败";
-            TCLog(@"Writing selected image failed: %@", writeError);
-            return;
-        }
+            NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory
+                                                                      inDomains:NSUserDomainMask].firstObject;
+            NSError *writeError = nil;
+            if (![NSFileManager.defaultManager createDirectoryAtURL:directory
+                                        withIntermediateDirectories:YES
+                                                         attributes:nil
+                                                              error:&writeError]) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    weakSelf.status.text = @"无法保存图片";
+                    TCLog(@"Create Application Support directory failed: %@", writeError);
+                });
+                return;
+            }
 
-        self.imageURL = savedURL;
-        self.preview.image = image;
-        [self updatePreview];
-        [[FloatingController shared] showImageAtURL:savedURL];
-        self.status.text = @"图片已保存，点击“开启悬浮”启动";
-        [self updateToggleTitle];
-        TCLog(@"Selected image saved successfully size=%@ bytes=%lu",
-              NSStringFromCGSize(image.size), (unsigned long)pngData.length);
-    } @catch (NSException *exception) {
-        self.status.text = @"处理图片时发生异常，请重新选择";
-        TCLog(@"Image processing exception: %@ %@", exception.name, exception.reason);
-    }
+            NSURL *savedURL = [directory URLByAppendingPathComponent:@"TrollCrosshair.png"];
+            if (![pngData writeToURL:savedURL options:NSDataWritingAtomic error:&writeError]) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    weakSelf.status.text = @"图片保存失败";
+                    TCLog(@"Writing selected image failed: %@", writeError);
+                });
+                return;
+            }
+
+            dispatch_async(dispatch_get_main_queue(), ^{
+                RootViewController *strongSelf = weakSelf;
+                if (!strongSelf) return;
+                strongSelf.imageURL = savedURL;
+                strongSelf.preview.image = normalized;
+                [strongSelf updatePreview];
+                // Deliberately do not signal or launch the separate HUD process
+                // as part of photo selection. The overlay starts only when the
+                // user taps the explicit enable button.
+                strongSelf.status.text = @"图片已保存，点击“开启悬浮”启动";
+                [strongSelf updateToggleTitle];
+                TCLog(@"Selected image saved successfully size=%@ bytes=%lu",
+                      NSStringFromCGSize(normalized.size), (unsigned long)pngData.length);
+            });
+        }
+    });
 }
 
 - (void)loadSavedOrDefaultImage {
