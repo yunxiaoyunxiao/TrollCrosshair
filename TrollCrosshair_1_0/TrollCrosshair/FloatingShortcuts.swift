@@ -1,5 +1,6 @@
 import AppIntents
 import Foundation
+import UIKit
 
 @available(iOS 17.0, *)
 struct ToggleFloatingIntent: AppIntent {
@@ -8,7 +9,8 @@ struct ToggleFloatingIntent: AppIntent {
     static var openAppWhenRun = true
 
     func perform() async throws -> some IntentResult {
-        return .result(opensIntent: OpenURLIntent(URL(string: "trollcrosshair://toggle")!))
+        UIApplication.shared.open(URL(string: "trollcrosshair://toggle")!)
+        return .result()
     }
 }
 
@@ -19,7 +21,8 @@ struct EnableFloatingIntent: AppIntent {
     static var openAppWhenRun = true
 
     func perform() async throws -> some IntentResult {
-        return .result(opensIntent: OpenURLIntent(URL(string: "trollcrosshair://on")!))
+        UIApplication.shared.open(URL(string: "trollcrosshair://on")!)
+        return .result()
     }
 }
 
@@ -30,7 +33,8 @@ struct DisableFloatingIntent: AppIntent {
     static var openAppWhenRun = true
 
     func perform() async throws -> some IntentResult {
-        return .result(opensIntent: OpenURLIntent(URL(string: "trollcrosshair://off")!))
+        UIApplication.shared.open(URL(string: "trollcrosshair://off")!)
+        return .result()
     }
 }
 
