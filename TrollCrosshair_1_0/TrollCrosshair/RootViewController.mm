@@ -1,6 +1,7 @@
 #import "RootViewController.h"
 #import <PhotosUI/PhotosUI.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import "TCLogger.h"
 #import "FISettings.h"
 #import "FloatingController.h"
 
@@ -92,6 +93,7 @@
         return;
     }
     self.status.text = @"正在读取所选图片…";
+    TCLog(@"Image picker started; provider types=%@", provider.registeredTypeIdentifiers);
     NSString *imageType = nil;
     for (NSString *identifier in provider.registeredTypeIdentifiers) {
         UTType *type = [UTType typeWithIdentifier:identifier];
@@ -109,11 +111,12 @@
     // 直接读取提供者声明的图片类型数据，再由 UIImage 解码。
     [provider loadDataRepresentationForTypeIdentifier:imageType completionHandler:^(NSData *imageData, NSError *error) {
         UIImage *image = imageData.length ? [UIImage imageWithData:imageData] : nil;
+        TCLog(@"Image provider completed; type=%@ bytes=%lu error=%@", imageType, (unsigned long)imageData.length, error);
         if (!image) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 self.status.text = [NSString stringWithFormat:@"读取图片失败：%@", error.localizedDescription ?: @"图片数据为空或无法解码"];
             });
-            NSLog(@"[TrollCrosshair] PHPicker data load failed, type=%@ error=%@", imageType, error);
+            TCLog(@"PHPicker data load failed; type=%@ error=%@", imageType, error);
             return;
         }
         NSData *data = UIImagePNGRepresentation(image);
@@ -147,21 +150,31 @@
                 ? @"图片已载入，悬浮已开启"
                 : @"图片已保存并开启；系统悬浮窗口尚未连接";
             [self updateToggleTitle];
-            NSLog(@"[TrollCrosshair] Selected image saved (%lu bytes), type=%@ overlayReady=%d",
+            TCLog(@"Selected image saved (%lu bytes), type=%@ overlayReady=%d",
                   (unsigned long)data.length, imageType, [FloatingController shared].isOverlayReady);
         });
     }];
+}
+- (void)exportDiagnostics {
+    NSURL *url = TCLogFileURL();
+    if (![NSFileManager.defaultManager fileExistsAtPath:url.path]) TCLog(@"Diagnostic log export requested; no previous entries");
+    UIActivityViewController *activity = [[UIActivityViewController alloc] initWithActivityItems:@[url] applicationActivities:nil];
+    UIPopoverPresentationController *popover = activity.popoverPresentationController;
+    popover.sourceView = self.view;
+    popover.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
+    [self presentViewController:activity animated:YES completion:nil];
 }
 - (void)loadSavedImage {
     NSURL *dir = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
     NSURL *url = [dir URLByAppendingPathComponent:@"TrollCrosshair.png"];
     UIImage *image = [UIImage imageWithContentsOfFile:url.path];
-    if (image) { self.imageURL = url; self.preview.image = image; self.status.text = @"已载入上次选择的图片"; [[FloatingController shared] showImageAtURL:url]; }
+    if (image) { TCLog(@"Restored saved image from %@", url.path); self.imageURL = url; self.preview.image = image; self.status.text = @"已载入上次选择的图片"; [[FloatingController shared] showImageAtURL:url]; }
 }
 - (void)sliderChanged:(UISlider *)slider {
     NSInteger i = [self.sliders indexOfObject:slider]; FISettings *s = FISettings.shared;
     switch (i) { case 0: s.x = slider.value; break; case 1: s.y = slider.value; break; case 2: s.width = slider.value; break; case 3: s.height = slider.value; break; case 4: s.alpha = slider.value; break; }
     [s save]; [self updatePreview]; [[FloatingController shared] refresh];
+    TCLog(@"Setting changed: index=%ld x=%.1f y=%.1f width=%.1f height=%.1f alpha=%.2f", (long)i, s.x, s.y, s.width, s.height, s.alpha);
 }
 - (void)updatePreview {
     if (!self.preview || !self.previewContainer || !self.preview.image) return;
@@ -196,6 +209,7 @@
 - (void)toggle {
     if (!self.imageURL && !FISettings.shared.isEnabled) { self.status.text = @"请先选择一张图片"; return; }
     BOOL next = !FISettings.shared.isEnabled;
+    TCLog(@"Toggle requested: enabled=%d overlayReady=%d", next, [FloatingController shared].isOverlayReady);
     [[FloatingController shared] setEnabled:next];
     self.status.text = next ? ([FloatingController shared].isOverlayReady ? @"悬浮已开启" : @"已开启，但系统悬浮窗口尚未连接") : @"悬浮已关闭";
     [self updateToggleTitle];
