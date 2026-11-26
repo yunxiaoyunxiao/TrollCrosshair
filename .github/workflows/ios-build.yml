@@ -6,6 +6,10 @@ on:
       - floatimage-build-setup
   workflow_dispatch:
 
+concurrency:
+  group: trollcrosshair-ios-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: macos-15
