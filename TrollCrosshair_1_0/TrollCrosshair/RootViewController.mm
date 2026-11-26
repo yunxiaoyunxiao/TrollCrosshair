@@ -10,6 +10,7 @@
 @property(nonatomic,strong) UIButton *toggleButton;
 @property(nonatomic,strong) NSURL *imageURL;
 @property(nonatomic,strong) NSMutableArray<UISlider *> *sliders;
+@property(nonatomic,strong) UIStackView *contentStack;
 @end
 
 @implementation RootViewController
@@ -35,7 +36,7 @@
         [scroll.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:18],
         [scroll.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor]
     ]];
-    UIStackView *stack = [[UIStackView alloc] init]; stack.axis = UILayoutConstraintAxisVertical; stack.spacing = 12; stack.translatesAutoresizingMaskIntoConstraints = NO;
+    UIStackView *stack = [[UIStackView alloc] init]; self.contentStack = stack; stack.axis = UILayoutConstraintAxisVertical; stack.spacing = 12; stack.translatesAutoresizingMaskIntoConstraints = NO;
     [scroll addSubview:stack];
     [NSLayoutConstraint activateConstraints:@[
         [stack.topAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.topAnchor],
@@ -44,7 +45,7 @@
         [stack.trailingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.trailingAnchor],
         [stack.widthAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.widthAnchor]
     ]];
-    UILabel *title = [self label:@"TrollCrosshair 1.0"]; title.font = [UIFont systemFontOfSize:26 weight:UIFontWeightBold]; [stack addArrangedSubview:title];
+    UILabel *title = [self label:@"TrollCrosshair Beta 1"]; title.font = [UIFont systemFontOfSize:26 weight:UIFontWeightBold]; [stack addArrangedSubview:title];
     self.status = [self label:@"尚未选择图片"]; [stack addArrangedSubview:self.status];
     UIButton *pick = [UIButton buttonWithType:UIButtonTypeSystem]; [pick setTitle:@"选择图片" forState:UIControlStateNormal]; [pick addTarget:self action:@selector(pickImage) forControlEvents:UIControlEventTouchUpInside]; [stack addArrangedSubview:pick];
     self.previewContainer = [UIView new];
@@ -67,19 +68,15 @@
     [self addSlider:@"透明度" min:0.05 max:1 value:FISettings.shared.alpha];
     self.toggleButton = [UIButton buttonWithType:UIButtonTypeSystem]; self.toggleButton.titleLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightSemibold]; [self.toggleButton addTarget:self action:@selector(toggle) forControlEvents:UIControlEventTouchUpInside]; [stack addArrangedSubview:self.toggleButton];
     UIButton *reset = [UIButton buttonWithType:UIButtonTypeSystem]; [reset setTitle:@"重置五项参数" forState:UIControlStateNormal]; [reset addTarget:self action:@selector(resetValues) forControlEvents:UIControlEventTouchUpInside]; [stack addArrangedSubview:reset];
-    UILabel *note = [self label:@"开发说明：当前悬浮层仅为前台场景内的高层级窗口实验，不代表已实现跨 App 常驻或系统级触摸穿透。需要在 iPadOS 17.0 + TrollStore 实机验证。"]; note.numberOfLines = 0; note.textColor = UIColor.secondaryLabelColor; [stack addArrangedSubview:note];
+    UILabel *note = [self label:@"Beta 测试版：全局显示与触摸穿透依赖 TrollStore 私有系统接口，请在 iPadOS 17.0 实机验证。图片显示层不接收触摸事件。"]; note.numberOfLines = 0; note.textColor = UIColor.secondaryLabelColor; [stack addArrangedSubview:note];
 }
 - (void)addSlider:(NSString *)name min:(float)min max:(float)max value:(float)value {
-    UILabel *l = [self label:name]; [self.view addSubview:l]; // label is placed in a compact vertical row below
-    [l removeFromSuperview];
+    UILabel *l = [self label:name];
     UIStackView *row = [UIStackView new]; row.axis = UILayoutConstraintAxisVertical; row.spacing = 4;
     [row addArrangedSubview:l];
     UISlider *slider = [UISlider new]; slider.minimumValue = min; slider.maximumValue = max; slider.value = value; [slider addTarget:self action:@selector(sliderChanged:) forControlEvents:UIControlEventValueChanged];
     [row addArrangedSubview:slider]; [self.sliders addObject:slider];
-    // Insert into the main stack (the scroll view's vertical stack).
-    UIScrollView *scroll = (UIScrollView *)self.view.subviews.firstObject;
-    UIStackView *stack = (UIStackView *)scroll.subviews.firstObject;
-    [stack addArrangedSubview:row];
+    [self.contentStack addArrangedSubview:row];
 }
 - (void)pickImage {
     PHPickerConfiguration *config = [PHPickerConfiguration new]; config.filter = PHPickerFilter.imagesFilter; config.selectionLimit = 1;
