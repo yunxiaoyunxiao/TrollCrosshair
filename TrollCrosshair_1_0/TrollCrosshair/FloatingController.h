@@ -3,7 +3,6 @@
 @interface FloatingController : NSObject
 + (instancetype)shared;
 @property(nonatomic,readonly,getter=isOverlayReady) BOOL overlayReady;
-- (void)showImageAtURL:(NSURL *)url;
 - (void)refresh;
 - (void)setEnabled:(BOOL)enabled;
 @end
