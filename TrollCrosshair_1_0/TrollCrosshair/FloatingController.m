@@ -1,4 +1,5 @@
 #import "FloatingController.h"
+#import "TCLogger.h"
 #import "FISettings.h"
 
 NSNotificationName const TCFloatingOverlayReadyNotification = @"TCFloatingOverlayReadyNotification";
@@ -34,7 +35,7 @@ NSNotificationName const TCFloatingOverlayReadyNotification = @"TCFloatingOverla
     if (self.imageURL) self.imageView.image = [UIImage imageWithContentsOfFile:self.imageURL.path];
     [self refresh];
     self.overlayWindow.hidden = !FISettings.shared.isEnabled;
-    NSLog(@"[TrollCrosshair] Overlay window attached; enabled=%d image=%@", FISettings.shared.isEnabled, self.imageURL.path);
+    TCLog(@"[TrollCrosshair] Overlay window attached; enabled=%d image=%@", FISettings.shared.isEnabled, self.imageURL.path);
     dispatch_async(dispatch_get_main_queue(), ^{
         [[NSNotificationCenter defaultCenter] postNotificationName:TCFloatingOverlayReadyNotification object:self];
     });
@@ -45,7 +46,7 @@ NSNotificationName const TCFloatingOverlayReadyNotification = @"TCFloatingOverla
     self.imageURL = url;
     UIImage *image = [UIImage imageWithContentsOfFile:url.path];
     if (!image) {
-        NSLog(@"[TrollCrosshair] Failed to load image at %@", url.path);
+        TCLog(@"[TrollCrosshair] Failed to load image at %@", url.path);
         return;
     }
     // Do not create a normal app UIWindow here. That only overlays this app and
@@ -54,7 +55,7 @@ NSNotificationName const TCFloatingOverlayReadyNotification = @"TCFloatingOverla
         self.imageView.image = image;
         [self refresh];
     }
-    NSLog(@"[TrollCrosshair] Image loaded; global overlay ready=%d", self.isOverlayReady);
+    TCLog(@"[TrollCrosshair] Image loaded; global overlay ready=%d", self.isOverlayReady);
 }
 
 - (void)refresh {
@@ -78,6 +79,6 @@ NSNotificationName const TCFloatingOverlayReadyNotification = @"TCFloatingOverla
         [self refresh];
     }
     self.overlayWindow.hidden = !enabled;
-    NSLog(@"[TrollCrosshair] Floating enabled=%d overlayReady=%d", enabled, self.isOverlayReady);
+    TCLog(@"[TrollCrosshair] Floating enabled=%d overlayReady=%d", enabled, self.isOverlayReady);
 }
 @end
