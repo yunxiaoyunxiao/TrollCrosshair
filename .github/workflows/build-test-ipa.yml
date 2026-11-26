@@ -30,6 +30,12 @@ jobs:
           tar -xjf FloatImage-1.1-source.tar.bz2 -C source
           find source -maxdepth 5 -type f -print
 
+      - name: Enable ARC for Objective-C sources
+        run: |
+          PROJECT="source/FloatImage-1.1/TrollCrosshair_1_0/TrollCrosshair.xcodeproj"
+          /usr/bin/sed -i '' 's/CODE_SIGN_STYLE = Automatic;/CLANG_ENABLE_OBJC_ARC = YES; CODE_SIGN_STYLE = Automatic;/g' "$PROJECT/project.pbxproj"
+          grep -n 'CLANG_ENABLE_OBJC_ARC' "$PROJECT/project.pbxproj"
+
       - name: Build unsigned iOS app
         run: |
           PROJECT="source/FloatImage-1.1/TrollCrosshair_1_0/TrollCrosshair.xcodeproj"
