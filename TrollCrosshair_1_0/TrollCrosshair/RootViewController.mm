@@ -170,7 +170,78 @@
 
 - (void)loadImageFromProvider:(NSItemProvider *)provider types:(NSArray<NSString *> *)types index:(NSUInteger)index {
     if (index >= types.count) {
-        dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片读取失败，请尝试其他图片"; });
+        // Some Photos providers advertise a type but do not vend its raw data
+        // representation. Fall back to UIImage loading for those providers.
+        __weak typeof(self) weakSelf = self;
+        [provider loadObjectOfClass:UIImage.class completionHandler:^(id<NSItemProviderReading> object, NSError *error) {
+            __strong typeof(weakSelf) self = weakSelf;
+            if (!self) return;
+            UIImage *image = [object isKindOfClass:UIImage.class] ? (UIImage *)object : nil;
+            CGImageRef sourceImage = image.CGImage;
+            if (!sourceImage) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    self.status.text = error.localizedDescription.length
+                        ? [NSString stringWithFormat:@"图片读取失败：%@", error.localizedDescription]
+                        : @"图片读取失败，请换一张图片";
+                });
+                return;
+            }
+
+            size_t sourceWidth = CGImageGetWidth(sourceImage);
+            size_t sourceHeight = CGImageGetHeight(sourceImage);
+            size_t longest = MAX(sourceWidth, sourceHeight);
+            CGFloat scale = longest > 2048 ? 2048.0 / (CGFloat)longest : 1.0;
+            size_t width = MAX((size_t)1, (size_t)llround(sourceWidth * scale));
+            size_t height = MAX((size_t)1, (size_t)llround(sourceHeight * scale));
+            CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+            CGContextRef bitmap = CGBitmapContextCreate(NULL, width, height, 8, 0, colorSpace,
+                kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+            CGColorSpaceRelease(colorSpace);
+            if (!bitmap) {
+                dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片处理失败，请换一张图片"; });
+                return;
+            }
+            CGContextSetInterpolationQuality(bitmap, kCGInterpolationHigh);
+            CGContextDrawImage(bitmap, CGRectMake(0, 0, width, height), sourceImage);
+            CGImageRef thumbnail = CGBitmapContextCreateImage(bitmap);
+            CGContextRelease(bitmap);
+            if (!thumbnail) {
+                dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片处理失败，请换一张图片"; });
+                return;
+            }
+
+            NSMutableData *pngData = [NSMutableData data];
+            CGImageDestinationRef destination = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)pngData, CFSTR("public.png"), 1, NULL);
+            BOOL finalized = NO;
+            if (destination) {
+                CGImageDestinationAddImage(destination, thumbnail, NULL);
+                finalized = CGImageDestinationFinalize(destination);
+                CFRelease(destination);
+            }
+            UIImage *previewImage = [UIImage imageWithCGImage:thumbnail];
+            CGImageRelease(thumbnail);
+            if (!finalized || !pngData.length) {
+                dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片编码失败，请换一张图片"; });
+                return;
+            }
+
+            NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
+            NSError *writeError = nil;
+            [NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:&writeError];
+            NSURL *savedURL = [directory URLByAppendingPathComponent:@"TrollCrosshair.png"];
+            if (![pngData writeToURL:savedURL options:NSDataWritingAtomic error:&writeError]) {
+                dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片保存失败"; });
+                return;
+            }
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.imageURL = savedURL;
+                self.preview.image = previewImage;
+                [self updatePreview];
+                [[FloatingController shared] showImageAtURL:savedURL];
+                self.status.text = @"图片已保存，点击“开启悬浮”启动";
+                [self updateToggleTitle];
+            });
+        }];
         return;
     }
 
@@ -181,9 +252,6 @@
     }
 
     __weak typeof(self) weakSelf = self;
-    // Load the encoded representation into memory, then let ImageIO downsample
-    // directly from the encoded bytes. This avoids the temporary-file lifetime
-    // and provider file-coordination edge cases of loadFileRepresentation.
     [provider loadDataRepresentationForTypeIdentifier:type completionHandler:^(NSData *data, NSError *error) {
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) return;
@@ -218,8 +286,7 @@
         }
 
         NSMutableData *pngData = [NSMutableData data];
-        CGImageDestinationRef destination = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)pngData,
-            CFSTR("public.png"), 1, NULL);
+        CGImageDestinationRef destination = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)pngData, CFSTR("public.png"), 1, NULL);
         BOOL finalized = NO;
         if (destination) {
             CGImageDestinationAddImage(destination, thumbnail, NULL);
@@ -228,28 +295,21 @@
         }
         UIImage *previewImage = [UIImage imageWithCGImage:thumbnail];
         CGImageRelease(thumbnail);
-
-        if (!finalized || pngData.length == 0) {
+        if (!finalized || !pngData.length) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self loadImageFromProvider:provider types:types index:index + 1];
             });
             return;
         }
 
-        NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory
-            inDomains:NSUserDomainMask].firstObject;
+        NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
         NSError *writeError = nil;
-        if (![NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES
-            attributes:nil error:&writeError]) {
-            dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"无法保存图片"; });
-            return;
-        }
+        [NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:&writeError];
         NSURL *savedURL = [directory URLByAppendingPathComponent:@"TrollCrosshair.png"];
         if (![pngData writeToURL:savedURL options:NSDataWritingAtomic error:&writeError]) {
             dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片保存失败"; });
             return;
         }
-
         dispatch_async(dispatch_get_main_queue(), ^{
             self.imageURL = savedURL;
             self.preview.image = previewImage;
