@@ -182,6 +182,31 @@ static NSString *TCProbeDirectory(NSString *directory) {
     [self.toggleButton addTarget:self action:@selector(toggle) forControlEvents:UIControlEventTouchUpInside];
     [stack addArrangedSubview:self.toggleButton];
 
+    UILabel *shortcutTitle = [self label:@"快捷指令"];
+    shortcutTitle.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+    [stack addArrangedSubview:shortcutTitle];
+
+    UILabel *shortcutHint = [self label:@"在「快捷指令」中新建快捷指令，添加“打开 URL”动作，填入下方地址即可控制悬浮。"];
+    shortcutHint.font = [UIFont systemFontOfSize:12];
+    shortcutHint.textColor = UIColor.secondaryLabelColor;
+    shortcutHint.numberOfLines = 0;
+    [stack addArrangedSubview:shortcutHint];
+
+    UIStackView *shortcutActions = [UIStackView new];
+    shortcutActions.axis = UILayoutConstraintAxisHorizontal;
+    shortcutActions.distribution = UIStackViewDistributionFillEqually;
+    shortcutActions.spacing = 8;
+    NSArray<NSString *> *shortcutNames = @[@"复制开关", @"复制开启", @"复制关闭"];
+    for (NSUInteger i = 0; i < shortcutNames.count; i++) {
+        UIButton *shortcut = [UIButton buttonWithType:UIButtonTypeSystem];
+        [shortcut setTitle:shortcutNames[i] forState:UIControlStateNormal];
+        shortcut.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+        shortcut.tag = (NSInteger)i;
+        [shortcut addTarget:self action:@selector(copyShortcutURL:) forControlEvents:UIControlEventTouchUpInside];
+        [shortcutActions addArrangedSubview:shortcut];
+    }
+    [stack addArrangedSubview:shortcutActions];
+
     UIButton *reset = [UIButton buttonWithType:UIButtonTypeSystem];
     [reset setTitle:@"重置参数" forState:UIControlStateNormal];
     [reset addTarget:self action:@selector(resetValues) forControlEvents:UIControlEventTouchUpInside];
@@ -205,6 +230,14 @@ static NSString *TCProbeDirectory(NSString *directory) {
     row.layer.zPosition = 100.0;
     slider.layer.zPosition = 101.0;
     [self.contentStack addArrangedSubview:row];
+}
+
+- (void)copyShortcutURL:(UIButton *)sender {
+    NSArray<NSString *> *urls = @[@"trollcrosshair://toggle", @"trollcrosshair://on", @"trollcrosshair://off"];
+    if (sender.tag < 0 || sender.tag >= (NSInteger)urls.count) return;
+    UIPasteboard.generalPasteboard.string = urls[(NSUInteger)sender.tag];
+    NSArray<NSString *> *names = @[@"开关", @"开启", @"关闭"];
+    self.status.text = [NSString stringWithFormat:@"已复制悬浮%@链接；在快捷指令中添加“打开 URL”动作即可。", names[(NSUInteger)sender.tag]];
 }
 
 - (void)pickImage {
