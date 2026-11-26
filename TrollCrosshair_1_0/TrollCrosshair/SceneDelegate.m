@@ -1,4 +1,5 @@
 #import "SceneDelegate.h"
+#import "TCLogger.h"
 #import "AppDelegate.h"
 #import "RootViewController.h"
 #import "FloatingController.h"
@@ -12,7 +13,7 @@ static NSString * const TCFloatingSceneIdentifier = @"com.trollcrosshair.app.ove
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)connectionOptions {
     if (![scene isKindOfClass:UIWindowScene.class]) return;
     UIWindowScene *windowScene = (UIWindowScene *)scene;
-    NSLog(@"[TrollCrosshair] Scene connecting: persistentIdentifier=%@ role=%@", session.persistentIdentifier, session.role);
+    TCLog(@"[TrollCrosshair] Scene connecting: persistentIdentifier=%@ role=%@", session.persistentIdentifier, session.role);
 
     if ([session.persistentIdentifier isEqualToString:TCFloatingSceneIdentifier]) {
         Window *overlay = [[Window alloc] initWithWindowScene:windowScene];
