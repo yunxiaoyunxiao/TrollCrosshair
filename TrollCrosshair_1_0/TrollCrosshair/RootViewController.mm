@@ -21,6 +21,7 @@
     self.sliders = [NSMutableArray array];
     [self buildUI];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(shortcutStateChanged) name:@"TrollCrosshairStateChanged" object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(overlayReady) name:@"TCFloatingOverlayReadyNotification" object:nil];
     [self loadSavedImage];
     [self syncControls];
 }
@@ -94,6 +95,8 @@
         if ([data writeToURL:url atomically:YES]) dispatch_async(dispatch_get_main_queue(), ^{
             self.imageURL = url; self.preview.image = image; self.status.text = @"已选择图片并保存到本地";
             [[FloatingController shared] showImageAtURL:url];
+            [[FloatingController shared] setEnabled:YES];
+            self.status.text = [FloatingController shared].isOverlayReady ? @"图片已显示，悬浮已开启" : @"图片已保存；正在等待系统悬浮窗口连接";
         });
     }];
 }
@@ -132,11 +135,18 @@
     [self updatePreview]; [self updateToggleTitle];
 }
 - (void)shortcutStateChanged { [self updateToggleTitle]; [self updatePreview]; }
+- (void)overlayReady {
+    self.status.text = FISettings.shared.isEnabled ? @"系统悬浮窗口已连接，悬浮已开启" : @"系统悬浮窗口已连接，悬浮当前关闭";
+    [self updateToggleTitle];
+}
 - (void)dealloc { [[NSNotificationCenter defaultCenter] removeObserver:self]; }
 - (void)updateToggleTitle { [self.toggleButton setTitle:(FISettings.shared.isEnabled ? @"关闭悬浮" : @"开启悬浮") forState:UIControlStateNormal]; }
 - (void)toggle {
     if (!self.imageURL && !FISettings.shared.isEnabled) { self.status.text = @"请先选择一张图片"; return; }
-    [[FloatingController shared] setEnabled:!FISettings.shared.isEnabled]; [self updateToggleTitle];
+    BOOL next = !FISettings.shared.isEnabled;
+    [[FloatingController shared] setEnabled:next];
+    self.status.text = next ? ([FloatingController shared].isOverlayReady ? @"悬浮已开启" : @"已开启，但系统悬浮窗口尚未连接") : @"悬浮已关闭";
+    [self updateToggleTitle];
 }
 - (void)resetValues {
     [FISettings.shared reset]; [self syncControls]; [[FloatingController shared] refresh];
