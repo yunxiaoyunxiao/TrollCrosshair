@@ -203,25 +203,29 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
                 return;
             }
 
-            NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory
-                                                                      inDomains:NSUserDomainMask].firstObject;
+            NSString *supportPath = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support"];
             NSError *writeError = nil;
-            if (![NSFileManager.defaultManager createDirectoryAtURL:directory
-                                        withIntermediateDirectories:YES
-                                                         attributes:nil
-                                                              error:&writeError]) {
+            BOOL directoryReady = [[NSFileManager defaultManager] createDirectoryAtPath:supportPath
+                                                              withIntermediateDirectories:YES
+                                                                               attributes:nil
+                                                                                    error:&writeError];
+            BOOL isDirectory = NO;
+            BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:supportPath isDirectory:&isDirectory];
+            if ((!directoryReady && !exists) || !isDirectory) {
+                NSString *message = [NSString stringWithFormat:@"无法创建图片保存目录：%@（%@）", supportPath, writeError.localizedDescription ?: @"未知错误"];
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    weakSelf.status.text = @"无法保存图片";
-                    TCLog(@"Create Application Support directory failed: %@", writeError);
+                    weakSelf.status.text = message;
+                    TCLog(@"Create Application Support directory failed path=%@ error=%@", supportPath, writeError);
                 });
                 return;
             }
 
-            NSURL *savedURL = [directory URLByAppendingPathComponent:@"TrollCrosshair.png"];
+            NSURL *savedURL = [NSURL fileURLWithPath:[supportPath stringByAppendingPathComponent:@"TrollCrosshair.png"]];
             if (![pngData writeToURL:savedURL options:NSDataWritingAtomic error:&writeError]) {
+                NSString *message = [NSString stringWithFormat:@"图片写入失败：%@", writeError.localizedDescription ?: @"未知错误"];
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    weakSelf.status.text = @"图片保存失败";
-                    TCLog(@"Writing selected image failed: %@", writeError);
+                    weakSelf.status.text = message;
+                    TCLog(@"Writing selected image failed path=%@ bytes=%lu error=%@", savedURL.path, (unsigned long)pngData.length, writeError);
                 });
                 return;
             }
@@ -245,8 +249,9 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
 }
 
 - (void)loadSavedOrDefaultImage {
-    NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
-    NSURL *savedURL = [directory URLByAppendingPathComponent:@"TrollCrosshair.png"];
+    NSString *supportPath = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:supportPath withIntermediateDirectories:YES attributes:nil error:nil];
+    NSURL *savedURL = [NSURL fileURLWithPath:[supportPath stringByAppendingPathComponent:@"TrollCrosshair.png"]];
     UIImage *image = [UIImage imageWithContentsOfFile:savedURL.path];
 
     if (!image) {
