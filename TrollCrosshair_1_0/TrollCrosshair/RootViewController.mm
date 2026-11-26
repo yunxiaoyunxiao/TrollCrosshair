@@ -190,16 +190,24 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         CFTypeRef value = (task && copyEntitlement) ? copyEntitlement((__bridge CFTypeRef)task, (__bridge CFStringRef)key, NULL) : NULL;
         [entitlementLines addObject:[NSString stringWithFormat:@"%@: %@", key, value ? CFBridgingRelease(value) : @"<missing/unavailable>"]];
     }
+    void *sandboxHandle = dlopen("/usr/lib/system/libsystem_sandbox.dylib", RTLD_NOW);
+    int (*sandboxCheck)(pid_t, const char *, int, ...) = sandboxHandle ? (int (*)(pid_t, const char *, int, ...))dlsym(sandboxHandle, "sandbox_check") : NULL;
+    int homeCreateCheck = sandboxCheck ? sandboxCheck(0, "file-write-create", 1, home.fileSystemRepresentation) : -999;
+    int tempCreateCheck = sandboxCheck ? sandboxCheck(0, "file-write-create", 1, temporary.fileSystemRepresentation) : -999;
+    int tempDataCheck = sandboxCheck ? sandboxCheck(0, "file-write-data", 1, temporary.fileSystemRepresentation) : -999;
+    NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject ?: @"(nil)";
+    NSString *caches = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject ?: @"(nil)";
     NSString *diagnostics = [NSString stringWithFormat:
-        @"TrollCrosshair 图片保存失败\n%@\n\n运行环境诊断：\nUID: %d\nEUID: %d\nHOME: %@\nNSTemporaryDirectory: %@\nHOME 可写: %@\n临时目录可写: %@\nHOME stat: %@\nHOME owner/mode: %d/%o\ntmp stat: %@\ntmp owner/mode: %d/%o\n\n运行时 Entitlements:\n%@\n",
+        @"TrollCrosshair 图片保存失败\n%@\n\n运行环境诊断：\nUID: %d\nEUID: %d\nHOME: %@\nNSTemporaryDirectory: %@\nDocuments: %@\nCaches: %@\nHOME 可写: %@\n临时目录可写: %@\nHOME stat: %@\nHOME owner/mode: %d/%o\ntmp stat: %@\ntmp owner/mode: %d/%o\nsandbox_check file-write-create HOME: %d\nsandbox_check file-write-create tmp: %d\nsandbox_check file-write-data tmp: %d\n\n运行时 Entitlements:\n%@\n",
         message ?: @"未知错误",
-        getuid(), geteuid(), home, temporary,
+        getuid(), geteuid(), home, temporary, documents, caches,
         [[NSFileManager defaultManager] isWritableFileAtPath:home] ? @"YES" : @"NO",
         [[NSFileManager defaultManager] isWritableFileAtPath:temporary] ? @"YES" : @"NO",
         homeStatOK ? @"OK" : [NSString stringWithUTF8String:strerror(errno)],
         homeStatOK ? homeStat.st_uid : -1, homeStatOK ? homeStat.st_mode : 0,
         tempStatOK ? @"OK" : [NSString stringWithUTF8String:strerror(errno)],
         tempStatOK ? tempStat.st_uid : -1, tempStatOK ? tempStat.st_mode : 0,
+        homeCreateCheck, tempCreateCheck, tempDataCheck,
         [entitlementLines componentsJoinedByString:@"\n"]];
     UIPasteboard.generalPasteboard.string = diagnostics;
     self.status.text = @"保存失败，完整错误信息已复制到剪切板";
