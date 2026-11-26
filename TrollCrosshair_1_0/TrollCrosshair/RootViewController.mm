@@ -99,8 +99,7 @@ static NSString *TCProbeDirectory(NSString *directory) {
     self.readyNotifyToken = readyToken;
     [self loadSavedOrDefaultImage];
     [self syncControls];
-    if (FISettings.shared.isEnabled && self.imageURL) {
-        [[FloatingController shared] showImageAtURL:self.imageURL];
+    if (FISettings.shared.isEnabled && self.preview.image) {
         [[FloatingController shared] setEnabled:YES];
         self.status.text = @"正在启动悬浮…";
     }
@@ -283,8 +282,6 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
     }
 
     self.status.text = @"正在处理图片…";
-    // Work off the main thread. Normalize UIImage orientation and cap large
-    // camera-roll images before PNG encoding to avoid a memory spike on iPad.
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         @autoreleasepool {
@@ -307,68 +304,39 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
             if (!pngData.length) {
                 dispatch_async(dispatch_get_main_queue(), ^{
                     [weakSelf reportImageSaveFailure:@"图片编码失败：UIImagePNGRepresentation 返回空数据"];
-                    TCLog(@"UIImagePNGRepresentation returned empty data");
                 });
                 return;
             }
 
-            // Use the system-provided per-app temporary directory and POSIX I/O.
-            // This avoids Foundation's atomic-replacement path and exposes the exact errno.
-            NSString *supportPath = NSTemporaryDirectory();
-            NSString *filePath = [supportPath stringByAppendingPathComponent:@"TrollCrosshair.png"];
-            int fd = open(filePath.fileSystemRepresentation, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-            if (fd < 0) {
-                int savedErrno = errno;
-                NSString *message = [NSString stringWithFormat:@"图片写入失败（POSIX errno=%d）：%s；路径：%@",
-                                     savedErrno, strerror(savedErrno), filePath];
+            // The device currently denies direct POSIX access to all three app
+            // container directories despite sandbox_check reporting allow.
+            // Store the image through cfprefsd/NSUserDefaults instead of open().
+            NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+            [defaults setObject:pngData forKey:@"fi.overlayImageData"];
+            BOOL synchronized = [defaults synchronize];
+            NSData *readBack = [defaults dataForKey:@"fi.overlayImageData"];
+            BOOL verified = readBack.length == pngData.length && [readBack isEqualToData:pngData];
+            if (!verified) {
+                NSString *message = [NSString stringWithFormat:
+                    @"图片数据保存失败：NSUserDefaults 回读校验未通过；原始数据=%lu bytes；回读数据=%lu bytes；synchronize=%@",
+                    (unsigned long)pngData.length, (unsigned long)readBack.length,
+                    synchronized ? @"YES" : @"NO"];
                 dispatch_async(dispatch_get_main_queue(), ^{
                     [weakSelf reportImageSaveFailure:message];
-                    TCLog(@"POSIX open failed path=%@ errno=%d (%s)", filePath, savedErrno, strerror(savedErrno));
                 });
                 return;
             }
-            const uint8_t *bytes = (const uint8_t *)pngData.bytes;
-            NSUInteger remaining = pngData.length;
-            BOOL writeOK = YES;
-            int savedErrno = 0;
-            while (remaining > 0) {
-                ssize_t count = write(fd, bytes, remaining);
-                if (count < 0) {
-                    if (errno == EINTR) continue;
-                    savedErrno = errno;
-                    writeOK = NO;
-                    break;
-                }
-                bytes += count;
-                remaining -= (NSUInteger)count;
-            }
-            if (close(fd) != 0 && writeOK) {
-                savedErrno = errno;
-                writeOK = NO;
-            }
-            if (!writeOK) {
-                NSString *message = [NSString stringWithFormat:@"图片写入失败（POSIX errno=%d）：%s；路径：%@",
-                                     savedErrno, strerror(savedErrno), filePath];
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    [weakSelf reportImageSaveFailure:message];
-                    TCLog(@"POSIX write failed path=%@ bytes=%lu errno=%d (%s)", filePath, (unsigned long)pngData.length, savedErrno, strerror(savedErrno));
-                });
-                return;
-            }
-            NSURL *savedURL = [NSURL fileURLWithPath:filePath];
 
             dispatch_async(dispatch_get_main_queue(), ^{
                 RootViewController *strongSelf = weakSelf;
                 if (!strongSelf) return;
-                strongSelf.imageURL = savedURL;
+                strongSelf.imageURL = nil;
                 strongSelf.preview.image = normalized;
                 [strongSelf updatePreview];
-                // Deliberately do not signal or launch the separate HUD process
-                // as part of photo selection. The overlay starts only when the
-                // user taps the explicit enable button.
+                [[FloatingController shared] refresh];
                 strongSelf.status.text = @"图片已保存，点击“开启悬浮”启动";
                 [strongSelf updateToggleTitle];
-                TCLog(@"Selected image saved successfully size=%@ bytes=%lu",
+                TCLog(@"Selected image stored in preferences size=%@ bytes=%lu",
                       NSStringFromCGSize(normalized.size), (unsigned long)pngData.length);
             });
         }
@@ -376,34 +344,30 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
 }
 
 - (void)loadSavedOrDefaultImage {
-    NSString *supportPath = [NSHomeDirectory() stringByAppendingPathComponent:@"tmp"];
-    [[NSFileManager defaultManager] createDirectoryAtPath:supportPath withIntermediateDirectories:YES attributes:nil error:nil];
-    NSURL *savedURL = [NSURL fileURLWithPath:[supportPath stringByAppendingPathComponent:@"TrollCrosshair.png"]];
-    UIImage *image = [UIImage imageWithContentsOfFile:savedURL.path];
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSData *savedData = [defaults dataForKey:@"fi.overlayImageData"];
+    UIImage *image = savedData.length ? [UIImage imageWithData:savedData] : nil;
 
-    if (!image) {
+    if (image) {
+        TCLog(@"Restored selected image from preferences (%lu bytes)", (unsigned long)savedData.length);
+    } else {
         NSString *resourcePath = [NSBundle.mainBundle pathForResource:@"IMG_9324.png" ofType:@"b64"];
         NSString *encoded = resourcePath ? [NSString stringWithContentsOfFile:resourcePath encoding:NSUTF8StringEncoding error:nil] : nil;
         NSData *pngData = encoded ? [[NSData alloc] initWithBase64EncodedString:[encoded stringByReplacingOccurrencesOfString:@"\n" withString:@""] options:NSDataBase64DecodingIgnoreUnknownCharacters] : nil;
         image = pngData.length ? [UIImage imageWithData:pngData] : nil;
-        if (image) {
-            NSString *supportPath = [NSHomeDirectory() stringByAppendingPathComponent:@"tmp"];
-            [[NSFileManager defaultManager] createDirectoryAtPath:supportPath withIntermediateDirectories:YES attributes:nil error:nil];
-            NSURL *defaultURL = [NSURL fileURLWithPath:[supportPath stringByAppendingPathComponent:@"TrollCrosshair.png"]];
-            [pngData writeToURL:defaultURL options:NSDataWritingAtomic error:nil];
-            savedURL = defaultURL;
-            TCLog(@"Installed bundled default image");
+        if (image && pngData.length) {
+            [defaults setObject:pngData forKey:@"fi.overlayImageData"];
+            [defaults synchronize];
+            TCLog(@"Loaded bundled default image into preferences");
         } else {
             TCLog(@"Bundled default image could not be loaded");
         }
-    } else {
-        TCLog(@"Restored user-selected image");
     }
 
     if (image) {
-        self.imageURL = savedURL;
+        self.imageURL = nil;
         self.preview.image = image;
-        [[FloatingController shared] showImageAtURL:savedURL];
+        [[FloatingController shared] refresh];
         self.status.text = @"图片已就绪";
     } else {
         self.status.text = @"请选择图片";
