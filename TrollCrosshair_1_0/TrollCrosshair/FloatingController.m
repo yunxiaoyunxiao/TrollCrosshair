@@ -90,7 +90,8 @@ static NSURL *TCHUDPIDURL(void) {
 }
 - (void)reloadOverlay {
     [FISettings.shared reload];
-    UIImage *image = [UIImage imageWithContentsOfFile:TCHUDImageURL().path];
+    NSData *imageData = [NSUserDefaults.standardUserDefaults dataForKey:@"fi.overlayImageData"];
+    UIImage *image = imageData.length ? [UIImage imageWithData:imageData] : nil;
     self.imageView.image = image;
     if (!image) {
         self.imageView.hidden = YES;
@@ -144,11 +145,12 @@ static NSURL *TCHUDPIDURL(void) {
     return pid > 0 && kill(pid, 0) == 0;
 }
 - (void)showImageAtURL:(NSURL *)url {
-    if (!url) return;
-    self.imageURL = url;
-    TCLog(@"HUD image selected: %@", url.path);
-    notify_post(TCFloatingRefreshNotification.UTF8String);
+    // Kept as a compatibility shim; image bytes are now transferred through
+    // the shared preferences domain, not a filesystem path.
+    (void)url;
+    [self refresh];
 }
+
 - (void)refresh {
     notify_post(TCFloatingRefreshNotification.UTF8String);
 }
