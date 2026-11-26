@@ -441,7 +441,13 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
 }
 
 - (void)toggle {
-    if (!self.imageURL && !FISettings.shared.isEnabled) {
+    // imageURL is no longer used: selected image bytes are persisted in
+    // NSUserDefaults under fi.overlayImageData. Checking imageURL here made
+    // every freshly saved image look "missing", so tapping Enable reopened
+    // the photo picker instead of starting the HUD.
+    NSData *savedImageData = [NSUserDefaults.standardUserDefaults dataForKey:@"fi.overlayImageData"];
+    UIImage *savedImage = savedImageData.length ? [UIImage imageWithData:savedImageData] : nil;
+    if (!savedImage && !FISettings.shared.isEnabled) {
         self.status.text = @"请先选择图片";
         return;
     }
