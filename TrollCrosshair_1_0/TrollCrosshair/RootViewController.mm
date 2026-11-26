@@ -1,6 +1,8 @@
 #import "RootViewController.h"
 #import <PhotosUI/PhotosUI.h>
 #import <notify.h>
+#import <ImageIO/ImageIO.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import "TCLogger.h"
 #import "FISettings.h"
 #import "FloatingController.h"
@@ -168,8 +170,7 @@
 
 - (void)loadImageFromProvider:(NSItemProvider *)provider types:(NSArray<NSString *> *)types index:(NSUInteger)index {
     if (index >= types.count) {
-        self.status.text = @"图片读取失败";
-        TCLog(@"All image representations failed: %@", types);
+        dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片读取失败，请尝试其他图片"; });
         return;
     }
 
@@ -179,45 +180,84 @@
         return;
     }
 
-    [provider loadDataRepresentationForTypeIdentifier:type completionHandler:^(NSData *data, NSError *error) {
-        UIImage *image = data.length ? [UIImage imageWithData:data] : nil;
-        TCLog(@"Image representation %@: bytes=%lu error=%@", type, (unsigned long)data.length, error);
-        if (image) {
-            [self savePickedImage:image];
-        } else {
-            [self loadImageFromProvider:provider types:types index:index + 1];
+    __weak typeof(self) weakSelf = self;
+    [provider loadFileRepresentationForTypeIdentifier:type completionHandler:^(NSURL *temporaryURL, NSError *error) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self) return;
+        if (!temporaryURL || error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self loadImageFromProvider:provider types:types index:index + 1];
+            });
+            return;
         }
-    }];
-}
 
-- (void)savePickedImage:(UIImage *)image {
-    NSData *data = UIImagePNGRepresentation(image);
-    if (!data.length) {
-        dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片转换失败"; });
-        return;
-    }
-    NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
-    NSError *error = nil;
-    if (![NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:&error]) {
-        dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"无法保存图片"; });
-        TCLog(@"Create image directory failed: %@", error);
-        return;
-    }
-    NSURL *url = [directory URLByAppendingPathComponent:@"TrollCrosshair.png"];
-    if (![data writeToURL:url options:NSDataWritingAtomic error:&error]) {
-        dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片保存失败"; });
-        TCLog(@"Save image failed: %@", error);
-        return;
-    }
-    dispatch_async(dispatch_get_main_queue(), ^{
-        self.imageURL = url;
-        self.preview.image = image;
-        [self updatePreview];
-        [[FloatingController shared] showImageAtURL:url];
-        self.status.text = @"图片已保存，点击“开启悬浮”启动";
-        [self updateToggleTitle];
-    });
-    TCLog(@"Picked image saved: %lu bytes", (unsigned long)data.length);
+        // Decode a bounded thumbnail instead of loading and re-encoding the
+        // full-resolution original. This avoids memory spikes with large photos.
+        CGImageSourceRef source = CGImageSourceCreateWithURL((__bridge CFURLRef)temporaryURL, NULL);
+        if (!source) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self loadImageFromProvider:provider types:types index:index + 1];
+            });
+            return;
+        }
+
+        NSDictionary *options = @{
+            (__bridge NSString *)kCGImageSourceCreateThumbnailFromImageAlways: @YES,
+            (__bridge NSString *)kCGImageSourceThumbnailMaxPixelSize: @2048,
+            (__bridge NSString *)kCGImageSourceCreateThumbnailWithTransform: @YES,
+            (__bridge NSString *)kCGImageSourceShouldCache: @NO
+        };
+        CGImageRef thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, (__bridge CFDictionaryRef)options);
+        CFRelease(source);
+        if (!thumbnail) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self loadImageFromProvider:provider types:types index:index + 1];
+            });
+            return;
+        }
+
+        NSMutableData *pngData = [NSMutableData data];
+        CGImageDestinationRef destination = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)pngData,
+            (__bridge CFStringRef)UTTypePNG.identifier, 1, NULL);
+        if (destination) {
+            CGImageDestinationAddImage(destination, thumbnail, NULL);
+            BOOL finalized = CGImageDestinationFinalize(destination);
+            CFRelease(destination);
+            if (!finalized) [pngData setLength:0];
+        }
+        UIImage *previewImage = [UIImage imageWithCGImage:thumbnail];
+        CGImageRelease(thumbnail);
+
+        if (pngData.length == 0) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self loadImageFromProvider:provider types:types index:index + 1];
+            });
+            return;
+        }
+
+        NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory
+            inDomains:NSUserDomainMask].firstObject;
+        NSError *writeError = nil;
+        if (![NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES
+            attributes:nil error:&writeError]) {
+            dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"无法保存图片"; });
+            return;
+        }
+        NSURL *savedURL = [directory URLByAppendingPathComponent:@"TrollCrosshair.png"];
+        if (![pngData writeToURL:savedURL options:NSDataWritingAtomic error:&writeError]) {
+            dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片保存失败"; });
+            return;
+        }
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.imageURL = savedURL;
+            self.preview.image = previewImage;
+            [self updatePreview];
+            [[FloatingController shared] showImageAtURL:savedURL];
+            self.status.text = @"图片已保存，点击“开启悬浮”启动";
+            [self updateToggleTitle];
+        });
+    }];
 }
 
 - (void)loadSavedOrDefaultImage {
