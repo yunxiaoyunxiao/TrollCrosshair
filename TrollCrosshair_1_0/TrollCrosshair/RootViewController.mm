@@ -260,8 +260,11 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         NSData *pngData = encoded ? [[NSData alloc] initWithBase64EncodedString:[encoded stringByReplacingOccurrencesOfString:@"\n" withString:@""] options:NSDataBase64DecodingIgnoreUnknownCharacters] : nil;
         image = pngData.length ? [UIImage imageWithData:pngData] : nil;
         if (image) {
-            [NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:nil];
-            [pngData writeToURL:savedURL options:NSDataWritingAtomic error:nil];
+            NSString *supportPath = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support"];
+            [[NSFileManager defaultManager] createDirectoryAtPath:supportPath withIntermediateDirectories:YES attributes:nil error:nil];
+            NSURL *defaultURL = [NSURL fileURLWithPath:[supportPath stringByAppendingPathComponent:@"TrollCrosshair.png"]];
+            [pngData writeToURL:defaultURL options:NSDataWritingAtomic error:nil];
+            savedURL = defaultURL;
             TCLog(@"Installed bundled default image");
         } else {
             TCLog(@"Bundled default image could not be loaded");
