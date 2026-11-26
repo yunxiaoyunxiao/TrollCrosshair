@@ -15,12 +15,12 @@ static NSString * const TCFloatingRefreshNotification = @"com.trollcrosshair.ref
 static NSString * const TCFloatingReadyNotification = @"com.trollcrosshair.ready";
 
 static NSURL *TCHUDImageURL(void) {
-    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/TrollCrosshairData"];
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents"];
     [[NSFileManager defaultManager] createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil];
     return [NSURL fileURLWithPath:[path stringByAppendingPathComponent:@"TrollCrosshair.png"]];
 }
 static NSURL *TCHUDPIDURL(void) {
-    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/TrollCrosshairData"];
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents"];
     [[NSFileManager defaultManager] createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil];
     return [NSURL fileURLWithPath:[path stringByAppendingPathComponent:@"TrollCrosshair-HUD.pid"]];
 }
