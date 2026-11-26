@@ -89,10 +89,6 @@
     [pick addTarget:self action:@selector(pickImage) forControlEvents:UIControlEventTouchUpInside];
     [actions addArrangedSubview:pick];
 
-    UIButton *copyLog = [UIButton buttonWithType:UIButtonTypeSystem];
-    [copyLog setTitle:@"复制日志" forState:UIControlStateNormal];
-    [copyLog addTarget:self action:@selector(copyDiagnostics) forControlEvents:UIControlEventTouchUpInside];
-    [actions addArrangedSubview:copyLog];
     [stack addArrangedSubview:actions];
 
     self.previewContainer = [UIView new];
@@ -218,8 +214,7 @@
         self.preview.image = image;
         [self updatePreview];
         [[FloatingController shared] showImageAtURL:url];
-        [[FloatingController shared] setEnabled:YES];
-        self.status.text = @"正在启动悬浮…";
+        self.status.text = @"图片已保存，点击“开启悬浮”启动";
         [self updateToggleTitle];
     });
     TCLog(@"Picked image saved: %lu bytes", (unsigned long)data.length);
