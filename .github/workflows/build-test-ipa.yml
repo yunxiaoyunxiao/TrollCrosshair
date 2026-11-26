@@ -1,0 +1,67 @@
+name: FloatImage iOS Test Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - floatimage-1.1
+    paths:
+      - 'FloatImage-1.1-source.zip'
+      - '.github/workflows/build-test-ipa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
+
+      - name: Unpack source
+        run: |
+          mkdir -p source
+          unzip -q FloatImage-1.1-source.zip -d source
+          find source -maxdepth 4 -type f -print
+
+      - name: Build unsigned iOS app
+        run: |
+          PROJECT="source/FloatImage-1.1/TrollCrosshair_1_0/TrollCrosshair.xcodeproj"
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme FloatImage \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$PWD/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package unsigned IPA for TrollStore testing
+        run: |
+          APP="$PWD/DerivedData/Build/Products/Release-iphoneos/FloatImage.app"
+          test -d "$APP"
+          mkdir -p package/Payload
+          ditto "$APP" package/Payload/FloatImage.app
+          cd package
+          ditto -c -k --sequesterRsrc --keepParent Payload "$GITHUB_WORKSPACE/FloatImage-1.1-test-unsigned.ipa"
+          cd "$GITHUB_WORKSPACE"
+          unzip -l FloatImage-1.1-test-unsigned.ipa
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' package/Payload/FloatImage.app/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' package/Payload/FloatImage.app/Info.plist
+
+      - name: Upload test IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: FloatImage-1.1-test-unsigned-IPA
+          path: FloatImage-1.1-test-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
