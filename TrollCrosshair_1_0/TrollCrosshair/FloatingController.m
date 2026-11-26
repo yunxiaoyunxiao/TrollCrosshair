@@ -1,13 +1,130 @@
 #import "FloatingController.h"
 #import "TCLogger.h"
 #import "FISettings.h"
+#import <objc/runtime.h>
+#import <notify.h>
+#import <spawn.h>
+#import <signal.h>
+#import <unistd.h>
+#import <dlfcn.h>
 
-NSNotificationName const TCFloatingOverlayReadyNotification = @"TCFloatingOverlayReadyNotification";
+extern char **environ;
+static NSString * const TCFloatingRefreshNotification = @"com.trollcrosshair.refresh";
+static NSString * const TCFloatingReadyNotification = @"com.trollcrosshair.ready";
+
+static NSURL *TCHUDImageURL(void) {
+    NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
+    return [directory URLByAppendingPathComponent:@"TrollCrosshair.png"];
+}
+static NSURL *TCHUDPIDURL(void) {
+    NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
+    [NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:nil];
+    return [directory URLByAppendingPathComponent:@"TrollCrosshair-HUD.pid"];
+}
+
+@interface TCHUDWindow : UIWindow
+@end
+@implementation TCHUDWindow
++ (BOOL)_isSystemWindow { return YES; }
+- (BOOL)_isWindowServerHostingManaged { return NO; }
+- (BOOL)_ignoresHitTest { return YES; }
+- (BOOL)_isSecure { return YES; }
+- (BOOL)_shouldCreateContextAsSecure { return YES; }
+@end
+
+@interface TCHUDProcessDelegate : UIResponder <UIApplicationDelegate>
+@property(nonatomic,strong) UIWindow *window;
+@property(nonatomic,strong) UIImageView *imageView;
+@property(nonatomic,strong) id hostingController;
+- (void)reloadOverlay;
+@end
+
+@implementation TCHUDProcessDelegate
+- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+    self.window = [[TCHUDWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
+    self.window.windowLevel = (UIWindowLevel)10000010.0;
+    self.window.backgroundColor = UIColor.clearColor;
+    UIViewController *root = [UIViewController new];
+    root.view.backgroundColor = UIColor.clearColor;
+    self.imageView = [UIImageView new];
+    self.imageView.backgroundColor = UIColor.clearColor;
+    self.imageView.contentMode = UIViewContentModeScaleAspectFit;
+    self.imageView.userInteractionEnabled = NO;
+    [root.view addSubview:self.imageView];
+    self.window.rootViewController = root;
+    [self.window setHidden:NO];
+    [self.window makeKeyAndVisible];
+
+    Class hostClass = objc_getClass("SBSAccessibilityWindowHostingController");
+    Class windowClass = objc_getClass("UIWindow");
+    SEL contextSelector = sel_registerName("_contextId");
+    if (!hostClass || ![self.window respondsToSelector:contextSelector]) {
+        TCLog(@"HUD hosting unavailable: hostClass=%@ contextSelector=%d", hostClass, [self.window respondsToSelector:contextSelector]);
+        return YES;
+    }
+    self.hostingController = [[hostClass alloc] init];
+    unsigned int contextID = ((unsigned int (*)(id, SEL))objc_msgSend)(self.window, contextSelector);
+    double level = self.window.windowLevel;
+    @try {
+        NSMethodSignature *signature = [NSMethodSignature signatureWithObjCTypes:"v@:Id"];
+        NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:signature];
+        [invocation setTarget:self.hostingController];
+        [invocation setSelector:sel_registerName("registerWindowWithContextID:atLevel:")];
+        [invocation setArgument:&contextID atIndex:2];
+        [invocation setArgument:&level atIndex:3];
+        [invocation invoke];
+        TCLog(@"HUD window registered with BackBoard context=%u level=%.1f", contextID, level);
+    } @catch (NSException *exception) {
+        TCLog(@"HUD window registration exception: %@", exception);
+    }
+
+    int token = 0;
+    notify_register_dispatch(TCFloatingRefreshNotification.UTF8String, &token, dispatch_get_main_queue(), ^(int t) {
+        [self reloadOverlay];
+    });
+    [self reloadOverlay];
+    notify_post(TCFloatingReadyNotification.UTF8String);
+    return YES;
+}
+- (void)reloadOverlay {
+    [FISettings.shared reload];
+    UIImage *image = [UIImage imageWithContentsOfFile:TCHUDImageURL().path];
+    self.imageView.image = image;
+    if (!image) {
+        self.imageView.hidden = YES;
+        return;
+    }
+    self.imageView.hidden = NO;
+    FISettings *s = FISettings.shared;
+    CGSize source = image.size;
+    CGFloat longest = MAX(source.width, source.height);
+    CGFloat factor = longest > 0 ? (180.0 * (s.sizeScale / 100.0)) / longest : 1.0;
+    CGFloat width = MAX(1.0, source.width * factor);
+    CGFloat height = MAX(1.0, source.height * factor);
+    CGRect screen = self.window.bounds;
+    UIEdgeInsets safe = self.window.safeAreaInsets;
+    CGRect usable = UIEdgeInsetsInsetRect(screen, safe);
+    self.imageView.bounds = CGRectMake(0, 0, width, height);
+    self.imageView.center = CGPointMake(CGRectGetMidX(usable) + s.x, CGRectGetMidY(usable) + s.y);
+    self.imageView.alpha = MIN(1.0, MAX(0.0, s.alpha));
+    self.window.hidden = !s.enabled;
+}
+@end
+
+@interface TCHUDApplication : UIApplication
+@end
+@implementation TCHUDApplication
+@end
+
+@interface UIApplication (TCHUDPrivate)
+- (void)_accessibilityInit;
+- (void)__completeAndRunAsPlugin;
+- (void)terminateWithSuccess;
+@end
 
 @interface FloatingController ()
-@property(nonatomic,strong) UIWindow *overlayWindow;
-@property(nonatomic,strong) UIImageView *imageView;
 @property(nonatomic,strong) NSURL *imageURL;
+@property(nonatomic,assign) pid_t hudPID;
 @end
 
 @implementation FloatingController
@@ -16,69 +133,96 @@ NSNotificationName const TCFloatingOverlayReadyNotification = @"TCFloatingOverla
     dispatch_once(&once, ^{ c = [FloatingController new]; });
     return c;
 }
-- (BOOL)isOverlayReady { return self.overlayWindow != nil && self.imageView != nil; }
-
-- (void)attachOverlayWindow:(UIWindow *)window {
-    if (!window) return;
-    self.overlayWindow = window;
-    self.overlayWindow.backgroundColor = UIColor.clearColor;
-    if (!self.overlayWindow.rootViewController) self.overlayWindow.rootViewController = [UIViewController new];
-    self.overlayWindow.rootViewController.view.backgroundColor = UIColor.clearColor;
-
-    [self.imageView removeFromSuperview];
-    self.imageView = [[UIImageView alloc] initWithFrame:CGRectZero];
-    self.imageView.contentMode = UIViewContentModeScaleToFill;
-    self.imageView.userInteractionEnabled = NO;
-    self.imageView.backgroundColor = UIColor.clearColor;
-    [self.overlayWindow.rootViewController.view addSubview:self.imageView];
-
-    if (self.imageURL) self.imageView.image = [UIImage imageWithContentsOfFile:self.imageURL.path];
-    [self refresh];
-    self.overlayWindow.hidden = !FISettings.shared.isEnabled;
-    TCLog(@"[TrollCrosshair] Overlay window attached; enabled=%d image=%@", FISettings.shared.isEnabled, self.imageURL.path);
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [[NSNotificationCenter defaultCenter] postNotificationName:TCFloatingOverlayReadyNotification object:self];
-    });
+- (BOOL)isOverlayReady {
+    pid_t pid = self.hudPID;
+    if (pid <= 0) {
+        NSString *saved = [NSString stringWithContentsOfURL:TCHUDPIDURL() encoding:NSUTF8StringEncoding error:nil];
+        pid = (pid_t)saved.intValue;
+    }
+    return pid > 0 && kill(pid, 0) == 0;
 }
-
 - (void)showImageAtURL:(NSURL *)url {
     if (!url) return;
     self.imageURL = url;
-    UIImage *image = [UIImage imageWithContentsOfFile:url.path];
-    if (!image) {
-        TCLog(@"[TrollCrosshair] Failed to load image at %@", url.path);
+    TCLog(@"HUD image selected: %@", url.path);
+    notify_post(TCFloatingRefreshNotification.UTF8String);
+}
+- (void)refresh {
+    notify_post(TCFloatingRefreshNotification.UTF8String);
+}
+- (void)startHUDProcess {
+    if (self.isOverlayReady) {
+        notify_post(TCFloatingRefreshNotification.UTF8String);
         return;
     }
-    // Do not create a normal app UIWindow here. That only overlays this app and
-    // prevents the real FrontBoard scene from owning the image window.
-    if (self.imageView) {
-        self.imageView.image = image;
-        [self refresh];
+    NSString *executable = NSBundle.mainBundle.executablePath;
+    if (!executable.length) {
+        TCLog(@"Cannot start HUD: executable path missing");
+        return;
     }
-    TCLog(@"[TrollCrosshair] Image loaded; global overlay ready=%d", self.isOverlayReady);
+    char *argv[] = {(char *)executable.UTF8String, "-hud", NULL};
+    pid_t pid = 0;
+    int result = posix_spawn(&pid, executable.fileSystemRepresentation, NULL, NULL, argv, environ);
+    if (result != 0) {
+        TCLog(@"posix_spawn HUD failed: %d", result);
+        return;
+    }
+    self.hudPID = pid;
+    [@(pid).stringValue writeToURL:TCHUDPIDURL() atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    TCLog(@"HUD process spawned pid=%d", pid);
 }
-
-- (void)refresh {
-    if (!self.overlayWindow || !self.imageView) return;
-    FISettings *s = FISettings.shared;
-    CGRect bounds = self.overlayWindow.bounds;
-    UIEdgeInsets insets = self.overlayWindow.safeAreaInsets;
-    CGRect usableBounds = UIEdgeInsetsInsetRect(bounds, insets);
-    CGFloat cx = CGRectGetMidX(usableBounds) + s.x;
-    CGFloat cy = CGRectGetMidY(usableBounds) + s.y;
-    self.imageView.bounds = CGRectMake(0, 0, MAX(1, s.width), MAX(1, s.height));
-    self.imageView.center = CGPointMake(cx, cy);
-    self.imageView.alpha = MIN(1, MAX(0, s.alpha));
+- (void)stopHUDProcess {
+    pid_t pid = self.hudPID;
+    if (pid <= 0) {
+        NSString *saved = [NSString stringWithContentsOfURL:TCHUDPIDURL() encoding:NSUTF8StringEncoding error:nil];
+        pid = (pid_t)saved.intValue;
+    }
+    if (pid > 0 && kill(pid, 0) == 0) {
+        kill(pid, SIGTERM);
+        TCLog(@"HUD process stopped pid=%d", pid);
+    }
+    self.hudPID = 0;
+    [NSFileManager.defaultManager removeItemAtURL:TCHUDPIDURL() error:nil];
 }
-
 - (void)setEnabled:(BOOL)enabled {
     FISettings.shared.enabled = enabled;
     [FISettings.shared save];
-    if (enabled && self.imageURL && self.imageView) {
-        self.imageView.image = [UIImage imageWithContentsOfFile:self.imageURL.path];
-        [self refresh];
-    }
-    self.overlayWindow.hidden = !enabled;
-    TCLog(@"[TrollCrosshair] Floating enabled=%d overlayReady=%d", enabled, self.isOverlayReady);
+    if (enabled) [self startHUDProcess]; else [self stopHUDProcess];
+    TCLog(@"Floating enabled=%d HUD process ready=%d", enabled, self.isOverlayReady);
 }
 @end
+
+static void *TCHUDSymbol(const char *name, const char *frameworkPath) {
+    void *handle = dlopen(frameworkPath, RTLD_NOW);
+    void *symbol = dlsym(handle ?: RTLD_DEFAULT, name);
+    if (!symbol) symbol = dlsym(RTLD_DEFAULT, name);
+    return symbol;
+}
+
+int TCHUDMain(void) {
+    @autoreleasepool {
+        TCLog(@"HUD helper process starting");
+        [UIScreen initialize];
+        CFRunLoopGetCurrent();
+
+        typedef void (*VoidFunction)(void);
+        typedef void (*InstantiateFunction)(id);
+        VoidFunction gs = (VoidFunction)TCHUDSymbol("GSInitialize", "/System/Library/PrivateFrameworks/GraphicsServices.framework/GraphicsServices");
+        VoidFunction bks = (VoidFunction)TCHUDSymbol("BKSDisplayServicesStart", "/System/Library/PrivateFrameworks/BackBoardServices.framework/BackBoardServices");
+        VoidFunction ui = (VoidFunction)TCHUDSymbol("UIApplicationInitialize", "/System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore");
+        InstantiateFunction instantiate = (InstantiateFunction)TCHUDSymbol("UIApplicationInstantiateSingleton", "/System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore");
+        if (!gs || !bks || !ui || !instantiate) {
+            TCLog(@"HUD bootstrap symbols missing GS=%d BKS=%d UI=%d instantiate=%d", gs != NULL, bks != NULL, ui != NULL, instantiate != NULL);
+            return EXIT_FAILURE;
+        }
+        gs(); bks(); ui();
+        instantiate(TCHUDApplication.class);
+        UIApplication *app = UIApplication.sharedApplication;
+        TCHUDProcessDelegate *delegate = [TCHUDProcessDelegate new];
+        [app setDelegate:delegate];
+        [app _accessibilityInit];
+        [app __completeAndRunAsPlugin];
+        CFRunLoopRun();
+        return EXIT_SUCCESS;
+    }
+}
