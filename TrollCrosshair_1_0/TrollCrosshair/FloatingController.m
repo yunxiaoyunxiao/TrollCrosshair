@@ -67,28 +67,34 @@ static NSURL *TCHUDPIDURL(void) {
     // Helium loads SpringBoardServices before resolving the private hosting class.
     // Without this framework, objc_getClass may return nil and the HUD remains
     // an ordinary app-local UIWindow instead of a BackBoard-hosted window.
-    dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices", RTLD_NOW | RTLD_GLOBAL);
+    void *sbsHandle = dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices", RTLD_NOW | RTLD_GLOBAL);
     Class hostClass = objc_getClass("SBSAccessibilityWindowHostingController");
     SEL contextSelector = sel_registerName("_contextId");
-    TCLog(@"HUD host bootstrap uid=%d euid=%d hostClass=%@ windowContext=%d", getuid(), geteuid(), hostClass, [self.window respondsToSelector:contextSelector]);
-    if (!hostClass || ![self.window respondsToSelector:contextSelector]) {
-        TCLog(@"HUD hosting unavailable: hostClass=%@ contextSelector=%d", hostClass, [self.window respondsToSelector:contextSelector]);
-        return YES;
-    }
-    self.hostingController = [[hostClass alloc] init];
-    unsigned int contextID = ((unsigned int (*)(id, SEL))objc_msgSend)(self.window, contextSelector);
-    double level = self.window.windowLevel;
-    @try {
-        NSMethodSignature *signature = [NSMethodSignature signatureWithObjCTypes:"v@:Id"];
-        NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:signature];
-        [invocation setTarget:self.hostingController];
-        [invocation setSelector:sel_registerName("registerWindowWithContextID:atLevel:")];
-        [invocation setArgument:&contextID atIndex:2];
-        [invocation setArgument:&level atIndex:3];
-        [invocation invoke];
-        TCLog(@"HUD window registered with BackBoard context=%u level=%.1f", contextID, level);
-    } @catch (NSException *exception) {
-        TCLog(@"HUD window registration exception: %@", exception);
+    BOOL hasContext = [self.window respondsToSelector:contextSelector];
+    TCLog(@"HUD host bootstrap uid=%d euid=%d sbsLoaded=%d hostClass=%@ windowContext=%d",
+          getuid(), geteuid(), sbsHandle != NULL, hostClass, hasContext);
+    if (hostClass && hasContext) {
+        self.hostingController = [[hostClass alloc] init];
+        unsigned int contextID = ((unsigned int (*)(id, SEL))objc_msgSend)(self.window, contextSelector);
+        double level = self.window.windowLevel;
+        if (contextID != 0) {
+            @try {
+                NSMethodSignature *signature = [NSMethodSignature signatureWithObjCTypes:"v@:Id"];
+                NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:signature];
+                [invocation setTarget:self.hostingController];
+                [invocation setSelector:sel_registerName("registerWindowWithContextID:atLevel:")];
+                [invocation setArgument:&contextID atIndex:2];
+                [invocation setArgument:&level atIndex:3];
+                [invocation invoke];
+                TCLog(@"HUD BackBoard registration call completed context=%u level=%.1f", contextID, level);
+            } @catch (NSException *exception) {
+                TCLog(@"HUD window registration exception: %@", exception);
+            }
+        } else {
+            TCLog(@"HUD hosting unavailable: window returned zero context ID");
+        }
+    } else {
+        TCLog(@"HUD hosting unavailable: hostClass=%@ contextSelector=%d", hostClass, hasContext);
     }
 
     int token = 0;
@@ -101,9 +107,15 @@ static NSURL *TCHUDPIDURL(void) {
 }
 - (void)reloadOverlay {
     [FISettings.shared reload];
-    CFPropertyListRef copiedValue = CFPreferencesCopyAppValue(CFSTR("fi.overlayImageData"), CFSTR("com.trollcrosshair.app"));
+    CFPropertyListRef copiedValue = CFPreferencesCopyValue(CFSTR("fi.overlayImageData"),
+                                                           CFSTR("com.trollcrosshair.app"),
+                                                           CFSTR("mobile"),
+                                                           kCFPreferencesAnyHost);
+    if (!copiedValue) copiedValue = CFPreferencesCopyAppValue(CFSTR("fi.overlayImageData"), CFSTR("com.trollcrosshair.app"));
     NSData *imageData = copiedValue ? CFBridgingRelease(copiedValue) : nil;
-    if (![imageData isKindOfClass:NSData.class] || imageData.length == 0) imageData = [NSUserDefaults.standardUserDefaults dataForKey:@"fi.overlayImageData"];
+    if (![imageData isKindOfClass:NSData.class] || imageData.length == 0) {
+        imageData = [NSUserDefaults.standardUserDefaults dataForKey:@"fi.overlayImageData"];
+    }
     UIImage *image = imageData.length ? [UIImage imageWithData:imageData] : nil;
     TCLog(@"HUD image read: dataBytes=%lu decoded=%@", (unsigned long)imageData.length, image ? NSStringFromCGSize(image.size) : @"NO");
     self.imageView.image = image;
