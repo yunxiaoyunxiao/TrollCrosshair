@@ -7,6 +7,9 @@
 #import <unistd.h>
 #import <errno.h>
 #import <string.h>
+#import <CoreFoundation/CoreFoundation.h>
+#import <sys/stat.h>
+#import <dlfcn.h>
 
 @interface RootViewController () <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
 @property(nonatomic,strong) UIView *previewContainer;
@@ -173,12 +176,31 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
 - (void)reportImageSaveFailure:(NSString *)message {
     NSString *home = NSHomeDirectory() ?: @"(nil)";
     NSString *temporary = NSTemporaryDirectory() ?: @"(nil)";
+    struct stat homeStat = {0};
+    struct stat tempStat = {0};
+    int homeStatOK = stat(home.fileSystemRepresentation, &homeStat) == 0;
+    int tempStatOK = stat(temporary.fileSystemRepresentation, &tempStat) == 0;
+    void *securityHandle = dlopen("/System/Library/Frameworks/Security.framework/Security", RTLD_NOW);
+    id (*createTask)(CFAllocatorRef) = securityHandle ? (id (*)(CFAllocatorRef))dlsym(securityHandle, "SecTaskCreateFromSelf") : NULL;
+    CFTypeRef (*copyEntitlement)(CFTypeRef, CFStringRef, CFErrorRef *) = securityHandle ? (CFTypeRef (*)(CFTypeRef, CFStringRef, CFErrorRef *))dlsym(securityHandle, "SecTaskCopyValueForEntitlement") : NULL;
+    id task = createTask ? createTask(kCFAllocatorDefault) : nil;
+    NSMutableArray<NSString *> *entitlementLines = [NSMutableArray array];
+    NSArray<NSString *> *keys = @[@"com.apple.private.security.no-sandbox", @"platform-application", @"get-task-allow"];
+    for (NSString *key in keys) {
+        CFTypeRef value = (task && copyEntitlement) ? copyEntitlement((__bridge CFTypeRef)task, (__bridge CFStringRef)key, NULL) : NULL;
+        [entitlementLines addObject:[NSString stringWithFormat:@"%@: %@", key, value ? CFBridgingRelease(value) : @"<missing/unavailable>"]];
+    }
     NSString *diagnostics = [NSString stringWithFormat:
-        @"TrollCrosshair 图片保存失败\n%@\n\n运行环境诊断：\nUID: %d\nEUID: %d\nHOME: %@\nNSTemporaryDirectory: %@\nHOME 可写: %@\n临时目录可写: %@\n",
+        @"TrollCrosshair 图片保存失败\n%@\n\n运行环境诊断：\nUID: %d\nEUID: %d\nHOME: %@\nNSTemporaryDirectory: %@\nHOME 可写: %@\n临时目录可写: %@\nHOME stat: %@\nHOME owner/mode: %d/%o\ntmp stat: %@\ntmp owner/mode: %d/%o\n\n运行时 Entitlements:\n%@\n",
         message ?: @"未知错误",
         getuid(), geteuid(), home, temporary,
         [[NSFileManager defaultManager] isWritableFileAtPath:home] ? @"YES" : @"NO",
-        [[NSFileManager defaultManager] isWritableFileAtPath:temporary] ? @"YES" : @"NO"];
+        [[NSFileManager defaultManager] isWritableFileAtPath:temporary] ? @"YES" : @"NO",
+        homeStatOK ? @"OK" : [NSString stringWithUTF8String:strerror(errno)],
+        homeStatOK ? homeStat.st_uid : -1, homeStatOK ? homeStat.st_mode : 0,
+        tempStatOK ? @"OK" : [NSString stringWithUTF8String:strerror(errno)],
+        tempStatOK ? tempStat.st_uid : -1, tempStatOK ? tempStat.st_mode : 0,
+        [entitlementLines componentsJoinedByString:@"\n"]];
     UIPasteboard.generalPasteboard.string = diagnostics;
     self.status.text = @"保存失败，完整错误信息已复制到剪切板";
     TCLog(@"%@", diagnostics);
