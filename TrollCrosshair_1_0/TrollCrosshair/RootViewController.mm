@@ -51,6 +51,7 @@
     UILabel *title = [self label:@"TrollCrosshair Beta 1"]; title.font = [UIFont systemFontOfSize:26 weight:UIFontWeightBold]; [stack addArrangedSubview:title];
     self.status = [self label:@"尚未选择图片"]; [stack addArrangedSubview:self.status];
     UIButton *pick = [UIButton buttonWithType:UIButtonTypeSystem]; [pick setTitle:@"选择图片" forState:UIControlStateNormal]; [pick addTarget:self action:@selector(pickImage) forControlEvents:UIControlEventTouchUpInside]; [stack addArrangedSubview:pick];
+    UIButton *logs = [UIButton buttonWithType:UIButtonTypeSystem]; [logs setTitle:@"导出诊断日志" forState:UIControlStateNormal]; [logs addTarget:self action:@selector(exportDiagnostics) forControlEvents:UIControlEventTouchUpInside]; [stack addArrangedSubview:logs];
     self.previewContainer = [UIView new];
     self.previewContainer.backgroundColor = UIColor.secondarySystemBackgroundColor;
     self.previewContainer.layer.cornerRadius = 12;
