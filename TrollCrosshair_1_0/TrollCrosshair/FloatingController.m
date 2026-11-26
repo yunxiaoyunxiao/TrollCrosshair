@@ -222,6 +222,14 @@ int TCHUDMain(void) {
         TCHUDProcessDelegate *delegate = [TCHUDProcessDelegate new];
         [app setDelegate:delegate];
         [app _accessibilityInit];
+
+        typedef void (*GSEventInitializeFunction)(Boolean);
+        typedef void (*GSEventPushRunLoopModeFunction)(CFStringRef);
+        GSEventInitializeFunction eventInitialize = (GSEventInitializeFunction)TCHUDSymbol("GSEventInitialize", "/System/Library/PrivateFrameworks/GraphicsServices.framework/GraphicsServices");
+        GSEventPushRunLoopModeFunction pushRunLoopMode = (GSEventPushRunLoopModeFunction)TCHUDSymbol("GSEventPushRunLoopMode", "/System/Library/PrivateFrameworks/GraphicsServices.framework/GraphicsServices");
+        if (eventInitialize) eventInitialize(0);
+        if (pushRunLoopMode) pushRunLoopMode(kCFRunLoopDefaultMode);
+
         [app __completeAndRunAsPlugin];
         CFRunLoopRun();
         return EXIT_SUCCESS;
