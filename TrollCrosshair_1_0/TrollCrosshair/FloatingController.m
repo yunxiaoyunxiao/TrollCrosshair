@@ -219,7 +219,10 @@ int TCHUDMain(void) {
         gs(); bks(); ui();
         instantiate(TCHUDApplication.class);
         UIApplication *app = UIApplication.sharedApplication;
-        TCHUDProcessDelegate *delegate = [TCHUDProcessDelegate new];
+        // UIApplication's delegate is not guaranteed to be retained; keep the
+        // helper delegate alive for the entire hosted-window process lifetime.
+        static TCHUDProcessDelegate *delegate = nil;
+        delegate = [TCHUDProcessDelegate new];
         [app setDelegate:delegate];
         [app _accessibilityInit];
 
