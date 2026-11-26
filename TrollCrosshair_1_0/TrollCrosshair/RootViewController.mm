@@ -181,19 +181,20 @@
     }
 
     __weak typeof(self) weakSelf = self;
-    [provider loadFileRepresentationForTypeIdentifier:type completionHandler:^(NSURL *temporaryURL, NSError *error) {
+    // Load the encoded representation into memory, then let ImageIO downsample
+    // directly from the encoded bytes. This avoids the temporary-file lifetime
+    // and provider file-coordination edge cases of loadFileRepresentation.
+    [provider loadDataRepresentationForTypeIdentifier:type completionHandler:^(NSData *data, NSError *error) {
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) return;
-        if (!temporaryURL || error) {
+        if (!data.length || error) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self loadImageFromProvider:provider types:types index:index + 1];
             });
             return;
         }
 
-        // Decode a bounded thumbnail instead of loading and re-encoding the
-        // full-resolution original. This avoids memory spikes with large photos.
-        CGImageSourceRef source = CGImageSourceCreateWithURL((__bridge CFURLRef)temporaryURL, NULL);
+        CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)data, NULL);
         if (!source) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self loadImageFromProvider:provider types:types index:index + 1];
@@ -218,17 +219,17 @@
 
         NSMutableData *pngData = [NSMutableData data];
         CGImageDestinationRef destination = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)pngData,
-            (__bridge CFStringRef)UTTypePNG.identifier, 1, NULL);
+            CFSTR("public.png"), 1, NULL);
+        BOOL finalized = NO;
         if (destination) {
             CGImageDestinationAddImage(destination, thumbnail, NULL);
-            BOOL finalized = CGImageDestinationFinalize(destination);
+            finalized = CGImageDestinationFinalize(destination);
             CFRelease(destination);
-            if (!finalized) [pngData setLength:0];
         }
         UIImage *previewImage = [UIImage imageWithCGImage:thumbnail];
         CGImageRelease(thumbnail);
 
-        if (pngData.length == 0) {
+        if (!finalized || pngData.length == 0) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self loadImageFromProvider:provider types:types index:index + 1];
             });
