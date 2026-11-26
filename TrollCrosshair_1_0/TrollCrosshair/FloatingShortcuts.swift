@@ -9,7 +9,7 @@ struct ToggleFloatingIntent: AppIntent {
     static var openAppWhenRun = true
 
     func perform() async throws -> some IntentResult {
-        UIApplication.shared.open(URL(string: "trollcrosshair://toggle")!)
+        await UIApplication.shared.open(URL(string: "trollcrosshair://toggle")!)
         return .result()
     }
 }
@@ -41,6 +41,7 @@ struct DisableFloatingIntent: AppIntent {
 @available(iOS 17.0, *)
 struct FloatingAppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
+        return [
         AppShortcut(
             intent: ToggleFloatingIntent(),
             phrases: [
@@ -66,5 +67,6 @@ struct FloatingAppShortcuts: AppShortcutsProvider {
             shortTitle: "关闭悬浮",
             systemImageName: "rectangle.slash"
         )
+        ]
     }
 }
