@@ -6,7 +6,7 @@ on:
     branches:
       - floatimage-1.1
     paths:
-      - 'FloatImage-1.1-source.zip'
+      - 'FloatImage-1.1-source.tar.bz2'
       - '.github/workflows/build-test-ipa.yml'
 
 permissions:
@@ -27,8 +27,8 @@ jobs:
       - name: Unpack source
         run: |
           mkdir -p source
-          unzip -q FloatImage-1.1-source.zip -d source
-          find source -maxdepth 4 -type f -print
+          tar -xjf FloatImage-1.1-source.tar.bz2 -C source
+          find source -maxdepth 5 -type f -print
 
       - name: Build unsigned iOS app
         run: |
