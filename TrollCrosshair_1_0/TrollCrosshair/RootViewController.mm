@@ -159,7 +159,10 @@ static NSString *TCProbeDirectory(NSString *directory) {
     self.previewContainer = [UIView new];
     self.previewContainer.backgroundColor = UIColor.secondarySystemBackgroundColor;
     self.previewContainer.layer.cornerRadius = 12;
-    self.previewContainer.clipsToBounds = YES;
+    // Let the preview image extend beyond the preview card. Later slider rows
+    // are explicitly raised above this view so their tracks/thumbs stay usable.
+    self.previewContainer.clipsToBounds = NO;
+    self.previewContainer.layer.masksToBounds = NO;
     self.previewContainer.translatesAutoresizingMaskIntoConstraints = NO;
     [self.previewContainer.heightAnchor constraintEqualToConstant:230].active = YES;
     [stack addArrangedSubview:self.previewContainer];
@@ -197,6 +200,10 @@ static NSString *TCProbeDirectory(NSString *directory) {
     [slider addTarget:self action:@selector(sliderChanged:) forControlEvents:UIControlEventValueChanged];
     [row addArrangedSubview:slider];
     [self.sliders addObject:slider];
+    // Keep each parameter slider above the preview image, even when the image
+    // visually overflows the preview card and reaches this part of the screen.
+    row.layer.zPosition = 100.0;
+    slider.layer.zPosition = 101.0;
     [self.contentStack addArrangedSubview:row];
 }
 
@@ -420,6 +427,9 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
     self.preview.center = CGPointMake(CGRectGetMidX(bounds) + offsetX,
                                       CGRectGetMidY(bounds) + offsetY);
     self.preview.alpha = MIN(1.0, MAX(0.0, settings.alpha));
+    // The image is the second layer: it can overflow the preview card,
+    // while the parameter slider rows (zPosition 100) remain above it.
+    self.preview.layer.zPosition = 1.0;
     [self.previewContainer bringSubviewToFront:self.preview];
 }
 
