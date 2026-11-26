@@ -20,7 +20,7 @@ jobs:
         run: |
           xcodebuild \
             -project TrollCrosshair_1_0/TrollCrosshair.xcodeproj \
-            -scheme FloatImage \
+            -scheme TrollCrosshair \
             -configuration Release \
             -sdk iphoneos \
             -derivedDataPath build/DerivedData \
@@ -31,12 +31,12 @@ jobs:
         run: |
           mkdir -p build/artifacts
           ditto -c -k --sequesterRsrc --keepParent \
-            build/DerivedData/Build/Products/Release-iphoneos/FloatImage.app \
-            build/artifacts/FloatImage-unsigned.zip
+            build/DerivedData/Build/Products/Release-iphoneos/TrollCrosshair.app \
+            build/artifacts/TrollCrosshair-unsigned.zip
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FloatImage-unsigned-app
-          path: build/artifacts/FloatImage-unsigned.zip
+          name: TrollCrosshair-unsigned-app
+          path: build/artifacts/TrollCrosshair-unsigned.zip
           if-no-files-found: error
