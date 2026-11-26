@@ -69,8 +69,8 @@ static NSURL *TCHUDPIDURL(void) {
     // an ordinary app-local UIWindow instead of a BackBoard-hosted window.
     dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices", RTLD_NOW | RTLD_GLOBAL);
     Class hostClass = objc_getClass("SBSAccessibilityWindowHostingController");
-    TCLog(@"HUD host bootstrap uid=%d euid=%d hostClass=%@ windowContext=%d", getuid(), geteuid(), hostClass, [self.window respondsToSelector:contextSelector]);
     SEL contextSelector = sel_registerName("_contextId");
+    TCLog(@"HUD host bootstrap uid=%d euid=%d hostClass=%@ windowContext=%d", getuid(), geteuid(), hostClass, [self.window respondsToSelector:contextSelector]);
     if (!hostClass || ![self.window respondsToSelector:contextSelector]) {
         TCLog(@"HUD hosting unavailable: hostClass=%@ contextSelector=%d", hostClass, [self.window respondsToSelector:contextSelector]);
         return YES;
