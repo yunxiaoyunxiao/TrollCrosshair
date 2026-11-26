@@ -311,11 +311,14 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
             // The device currently denies direct POSIX access to all three app
             // container directories despite sandbox_check reporting allow.
             // Store the image through cfprefsd/NSUserDefaults instead of open().
-            NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
-            [defaults setObject:pngData forKey:@"fi.overlayImageData"];
-            BOOL synchronized = [defaults synchronize];
-            NSData *readBack = [defaults dataForKey:@"fi.overlayImageData"];
-            BOOL verified = readBack.length == pngData.length && [readBack isEqualToData:pngData];
+            CFStringRef appID = CFSTR("com.trollcrosshair.app");
+            CFPreferencesSetAppValue(CFSTR("fi.overlayImageData"), (__bridge CFPropertyListRef)pngData, appID);
+            BOOL synchronized = CFPreferencesAppSynchronize(appID);
+            CFPropertyListRef copiedValue = CFPreferencesCopyAppValue(CFSTR("fi.overlayImageData"), appID);
+            NSData *readBack = copiedValue ? CFBridgingRelease(copiedValue) : nil;
+            BOOL verified = [readBack isKindOfClass:NSData.class] && readBack.length == pngData.length && [readBack isEqualToData:pngData];
+            [NSUserDefaults.standardUserDefaults setObject:pngData forKey:@"fi.overlayImageData"];
+            [NSUserDefaults.standardUserDefaults synchronize];
             if (!verified) {
                 NSString *message = [NSString stringWithFormat:
                     @"图片数据保存失败：NSUserDefaults 回读校验未通过；原始数据=%lu bytes；回读数据=%lu bytes；synchronize=%@",
@@ -344,8 +347,9 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
 }
 
 - (void)loadSavedOrDefaultImage {
-    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
-    NSData *savedData = [defaults dataForKey:@"fi.overlayImageData"];
+    CFPropertyListRef copiedValue = CFPreferencesCopyAppValue(CFSTR("fi.overlayImageData"), CFSTR("com.trollcrosshair.app"));
+    NSData *savedData = copiedValue ? CFBridgingRelease(copiedValue) : nil;
+    if (![savedData isKindOfClass:NSData.class] || savedData.length == 0) savedData = [NSUserDefaults.standardUserDefaults dataForKey:@"fi.overlayImageData"];
     UIImage *image = savedData.length ? [UIImage imageWithData:savedData] : nil;
 
     if (image) {
@@ -408,12 +412,15 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
     CGFloat previewScale = longest > 0 ? maxSide / longest : 1.0;
     CGFloat width = MAX(1.0, source.width * previewScale * (settings.sizeScale / 100.0));
     CGFloat height = MAX(1.0, source.height * previewScale * (settings.sizeScale / 100.0));
+    self.preview.hidden = NO;
+    self.preview.contentMode = UIViewContentModeScaleAspectFit;
     self.preview.bounds = CGRectMake(0, 0, width, height);
     CGFloat offsetX = settings.x * bounds.size.width / MAX(1.0, UIScreen.mainScreen.bounds.size.width);
     CGFloat offsetY = settings.y * bounds.size.height / MAX(1.0, UIScreen.mainScreen.bounds.size.height);
     self.preview.center = CGPointMake(CGRectGetMidX(bounds) + offsetX,
                                       CGRectGetMidY(bounds) + offsetY);
     self.preview.alpha = MIN(1.0, MAX(0.0, settings.alpha));
+    [self.previewContainer bringSubviewToFront:self.preview];
 }
 
 - (void)syncControls {
