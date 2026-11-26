@@ -1,5 +1,6 @@
 #import "RootViewController.h"
 #import <PhotosUI/PhotosUI.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import "FISettings.h"
 #import "FloatingController.h"
 
@@ -91,16 +92,28 @@
         return;
     }
     self.status.text = @"正在读取所选图片…";
-    if (![provider canLoadObjectOfClass:UIImage.class]) {
-        self.status.text = @"此图片格式暂不支持，请换一张图片";
+    NSString *imageType = nil;
+    for (NSString *identifier in provider.registeredTypeIdentifiers) {
+        UTType *type = [UTType typeWithIdentifier:identifier];
+        if (type && [type conformsToType:UTType.image]) {
+            imageType = identifier;
+            break;
+        }
+    }
+    if (!imageType) {
+        self.status.text = @"无法识别图片格式，请换一张图片";
         return;
     }
-    [provider loadObjectOfClass:UIImage.class completionHandler:^(UIImage *image, NSError *error) {
-        if (!image || error) {
+
+    // iOS 17 上部分 PHPicker 项目无法通过 loadObjectOfClass: 解码 public.png；
+    // 直接读取提供者声明的图片类型数据，再由 UIImage 解码。
+    [provider loadDataRepresentationForTypeIdentifier:imageType completionHandler:^(NSData *imageData, NSError *error) {
+        UIImage *image = imageData.length ? [UIImage imageWithData:imageData] : nil;
+        if (!image) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                self.status.text = [NSString stringWithFormat:@"读取图片失败：%@", error.localizedDescription ?: @"未知错误"];
+                self.status.text = [NSString stringWithFormat:@"读取图片失败：%@", error.localizedDescription ?: @"图片数据为空或无法解码"];
             });
-            NSLog(@"[TrollCrosshair] PHPicker load failed: %@", error);
+            NSLog(@"[TrollCrosshair] PHPicker data load failed, type=%@ error=%@", imageType, error);
             return;
         }
         NSData *data = UIImagePNGRepresentation(image);
@@ -134,8 +147,8 @@
                 ? @"图片已载入，悬浮已开启"
                 : @"图片已保存并开启；系统悬浮窗口尚未连接";
             [self updateToggleTitle];
-            NSLog(@"[TrollCrosshair] Selected image saved (%lu bytes), overlayReady=%d",
-                  (unsigned long)data.length, [FloatingController shared].isOverlayReady);
+            NSLog(@"[TrollCrosshair] Selected image saved (%lu bytes), type=%@ overlayReady=%d",
+                  (unsigned long)data.length, imageType, [FloatingController shared].isOverlayReady);
         });
     }];
 }
