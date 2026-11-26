@@ -11,7 +11,7 @@ static inline void TCLog(NSString *format, ...) {
     va_start(args, format);
     NSString *message = [[NSString alloc] initWithFormat:format arguments:args];
     va_end(args);
-    NSString *line = [NSString stringWithFormat:@"%@ %@\n", [NSISO8601DateFormatter new].stringFromDate(NSDate.date), message];
+    NSString *line = [NSString stringWithFormat:@"%@ %@\n", [[NSISO8601DateFormatter new] stringFromDate:NSDate.date], message];
     NSLog(@"%@", message);
     @synchronized (TCLogFileURL().path) {
         NSURL *url = TCLogFileURL();
