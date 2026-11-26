@@ -43,7 +43,7 @@
         [stack.trailingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.trailingAnchor],
         [stack.widthAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.widthAnchor]
     ]];
-    UILabel *title = [self label:@"FloatImage 1.0"]; title.font = [UIFont systemFontOfSize:26 weight:UIFontWeightBold]; [stack addArrangedSubview:title];
+    UILabel *title = [self label:@"TrollCrosshair 1.0"]; title.font = [UIFont systemFontOfSize:26 weight:UIFontWeightBold]; [stack addArrangedSubview:title];
     self.status = [self label:@"尚未选择图片"]; [stack addArrangedSubview:self.status];
     UIButton *pick = [UIButton buttonWithType:UIButtonTypeSystem]; [pick setTitle:@"选择图片" forState:UIControlStateNormal]; [pick addTarget:self action:@selector(pickImage) forControlEvents:UIControlEventTouchUpInside]; [stack addArrangedSubview:pick];
     self.previewContainer = [UIView new];
@@ -92,7 +92,7 @@
         if (!image || error) return;
         NSData *data = UIImagePNGRepresentation(image); NSURL *dir = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
         [NSFileManager.defaultManager createDirectoryAtURL:dir withIntermediateDirectories:YES attributes:nil error:nil];
-        NSURL *url = [dir URLByAppendingPathComponent:@"FloatImage.png"];
+        NSURL *url = [dir URLByAppendingPathComponent:@"TrollCrosshair.png"];
         if ([data writeToURL:url atomically:YES]) dispatch_async(dispatch_get_main_queue(), ^{
             self.imageURL = url; self.preview.image = image; self.status.text = @"已选择图片并保存到本地";
             [[FloatingController shared] showImageAtURL:url];
@@ -101,7 +101,7 @@
 }
 - (void)loadSavedImage {
     NSURL *dir = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
-    NSURL *url = [dir URLByAppendingPathComponent:@"FloatImage.png"];
+    NSURL *url = [dir URLByAppendingPathComponent:@"TrollCrosshair.png"];
     UIImage *image = [UIImage imageWithContentsOfFile:url.path];
     if (image) { self.imageURL = url; self.preview.image = image; self.status.text = @"已载入上次选择的图片"; [[FloatingController shared] showImageAtURL:url]; }
 }
