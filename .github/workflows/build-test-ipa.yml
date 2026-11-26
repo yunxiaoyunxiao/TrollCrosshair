@@ -1,12 +1,12 @@
-name: FloatImage iOS Test Build
+name: TrollCrosshair 1.2 iOS Build
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - floatimage-1.1
+      - trollcrosshair-1.2
     paths:
-      - 'FloatImage-1.1-source.tar.bz2'
+      - 'TrollCrosshair-1.2-source.tar.bz2'
       - '.github/workflows/build-test-ipa.yml'
 
 permissions:
@@ -27,48 +27,54 @@ jobs:
       - name: Unpack source
         run: |
           mkdir -p source
-          tar -xjf FloatImage-1.1-source.tar.bz2 -C source
-          find source -maxdepth 5 -type f -print
-
-      - name: Enable ARC for Objective-C sources
-        run: |
-          PROJECT="source/FloatImage-1.1/TrollCrosshair_1_0/TrollCrosshair.xcodeproj"
-          /usr/bin/sed -i '' 's/CODE_SIGN_STYLE = Automatic;/CLANG_ENABLE_OBJC_ARC = YES; CODE_SIGN_STYLE = Automatic;/g' "$PROJECT/project.pbxproj"
-          grep -n 'CLANG_ENABLE_OBJC_ARC' "$PROJECT/project.pbxproj"
+          tar -xjf TrollCrosshair-1.2-source.tar.bz2 -C source
+          PROJECT="source/TrollCrosshair-1.2/TrollCrosshair/TrollCrosshair.xcodeproj"
+          test -d "$PROJECT"
+          xcodebuild -list -project "$PROJECT"
 
       - name: Build unsigned iOS app
         run: |
-          PROJECT="source/FloatImage-1.1/TrollCrosshair_1_0/TrollCrosshair.xcodeproj"
+          PROJECT="source/TrollCrosshair-1.2/TrollCrosshair/TrollCrosshair.xcodeproj"
           xcodebuild \
             -project "$PROJECT" \
-            -scheme FloatImage \
+            -scheme TrollCrosshair \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$PWD/DerivedData" \
-            OTHER_LDFLAGS="-framework PhotosUI -framework UniformTypeIdentifiers" \
+            CLANG_ENABLE_OBJC_ARC=YES \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build
+            build | tee build.log
+          test ${PIPESTATUS[0]} -eq 0
 
       - name: Package unsigned IPA for TrollStore testing
         run: |
-          APP="$PWD/DerivedData/Build/Products/Release-iphoneos/FloatImage.app"
+          APP="$PWD/DerivedData/Build/Products/Release-iphoneos/TrollCrosshair.app"
           test -d "$APP"
           mkdir -p package/Payload
-          ditto "$APP" package/Payload/FloatImage.app
+          ditto "$APP" package/Payload/TrollCrosshair.app
           cd package
-          ditto -c -k --sequesterRsrc --keepParent Payload "$GITHUB_WORKSPACE/FloatImage-1.1-test-unsigned.ipa"
+          ditto -c -k --sequesterRsrc --keepParent Payload "$GITHUB_WORKSPACE/TrollCrosshair-1.2-test-unsigned.ipa"
           cd "$GITHUB_WORKSPACE"
-          unzip -l FloatImage-1.1-test-unsigned.ipa
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' package/Payload/FloatImage.app/Info.plist
-          /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' package/Payload/FloatImage.app/Info.plist
+          unzip -t TrollCrosshair-1.2-test-unsigned.ipa
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' package/Payload/TrollCrosshair.app/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' package/Payload/TrollCrosshair.app/Info.plist
 
       - name: Upload test IPA
         uses: actions/upload-artifact@v4
         with:
-          name: FloatImage-1.1-test-unsigned-IPA
-          path: FloatImage-1.1-test-unsigned.ipa
+          name: TrollCrosshair-1.2-test-unsigned-IPA
+          path: TrollCrosshair-1.2-test-unsigned.ipa
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TrollCrosshair-1.2-build-log
+          path: build.log
+          if-no-files-found: ignore
+          retention-days: 7
