@@ -23,22 +23,33 @@
     [self buildUI];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(shortcutStateChanged) name:@"TrollCrosshairStateChanged" object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(overlayReady) name:@"TCFloatingOverlayReadyNotification" object:nil];
-    [self loadSavedImage];
+    [self loadSavedOrDefaultImage];
     [self syncControls];
 }
+
 - (UILabel *)label:(NSString *)text {
-    UILabel *l = [UILabel new]; l.text = text; l.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium]; return l;
+    UILabel *label = [UILabel new];
+    label.text = text;
+    label.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
+    return label;
 }
+
 - (void)buildUI {
-    UIScrollView *scroll = [UIScrollView new]; scroll.translatesAutoresizingMaskIntoConstraints = NO;
+    UIScrollView *scroll = [UIScrollView new];
+    scroll.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:scroll];
     [NSLayoutConstraint activateConstraints:@[
         [scroll.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:8],
         [scroll.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
         [scroll.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:18],
-        [scroll.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor]
+        [scroll.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-18]
     ]];
-    UIStackView *stack = [[UIStackView alloc] init]; self.contentStack = stack; stack.axis = UILayoutConstraintAxisVertical; stack.spacing = 12; stack.translatesAutoresizingMaskIntoConstraints = NO;
+
+    UIStackView *stack = [UIStackView new];
+    self.contentStack = stack;
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 10;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
     [scroll addSubview:stack];
     [NSLayoutConstraint activateConstraints:@[
         [stack.topAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.topAnchor],
@@ -47,44 +58,84 @@
         [stack.trailingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.trailingAnchor],
         [stack.widthAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.widthAnchor]
     ]];
-    UILabel *title = [self label:@"TrollCrosshair Beta 1"]; title.font = [UIFont systemFontOfSize:26 weight:UIFontWeightBold]; [stack addArrangedSubview:title];
-    self.status = [self label:@"尚未选择图片"]; [stack addArrangedSubview:self.status];
-    UIButton *pick = [UIButton buttonWithType:UIButtonTypeSystem]; [pick setTitle:@"选择图片" forState:UIControlStateNormal]; [pick addTarget:self action:@selector(pickImage) forControlEvents:UIControlEventTouchUpInside]; [stack addArrangedSubview:pick];
-    UIButton *logs = [UIButton buttonWithType:UIButtonTypeSystem]; [logs setTitle:@"导出诊断日志" forState:UIControlStateNormal]; [logs addTarget:self action:@selector(exportDiagnostics) forControlEvents:UIControlEventTouchUpInside]; [stack addArrangedSubview:logs];
+
+    UILabel *title = [self label:@"图片悬浮"];
+    title.font = [UIFont systemFontOfSize:25 weight:UIFontWeightBold];
+    [stack addArrangedSubview:title];
+
+    self.status = [self label:@"正在准备图片…"];
+    self.status.textColor = UIColor.secondaryLabelColor;
+    [stack addArrangedSubview:self.status];
+
+    UIStackView *actions = [UIStackView new];
+    actions.axis = UILayoutConstraintAxisHorizontal;
+    actions.distribution = UIStackViewDistributionFillEqually;
+    actions.spacing = 12;
+    UIButton *pick = [UIButton buttonWithType:UIButtonTypeSystem];
+    [pick setTitle:@"选择图片" forState:UIControlStateNormal];
+    [pick addTarget:self action:@selector(pickImage) forControlEvents:UIControlEventTouchUpInside];
+    [actions addArrangedSubview:pick];
+
+    UIButton *copyLog = [UIButton buttonWithType:UIButtonTypeSystem];
+    [copyLog setTitle:@"复制日志" forState:UIControlStateNormal];
+    [copyLog addTarget:self action:@selector(copyDiagnostics) forControlEvents:UIControlEventTouchUpInside];
+    [actions addArrangedSubview:copyLog];
+    [stack addArrangedSubview:actions];
+
     self.previewContainer = [UIView new];
     self.previewContainer.backgroundColor = UIColor.secondarySystemBackgroundColor;
     self.previewContainer.layer.cornerRadius = 12;
     self.previewContainer.clipsToBounds = YES;
     self.previewContainer.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.previewContainer.heightAnchor constraintEqualToConstant:260].active = YES;
+    [self.previewContainer.heightAnchor constraintEqualToConstant:230].active = YES;
     [stack addArrangedSubview:self.previewContainer];
 
     self.preview = [UIImageView new];
     self.preview.contentMode = UIViewContentModeScaleToFill;
     self.preview.userInteractionEnabled = NO;
-    self.preview.frame = CGRectZero;
     [self.previewContainer addSubview:self.preview];
-    [self addSlider:@"X（水平，中心点）" min:-600 max:600 value:FISettings.shared.x];
-    [self addSlider:@"Y（垂直，中心点）" min:-900 max:900 value:FISettings.shared.y];
+
+    [self addSlider:@"X" min:-600 max:600 value:FISettings.shared.x];
+    [self addSlider:@"Y" min:-900 max:900 value:FISettings.shared.y];
     [self addSlider:@"宽度" min:20 max:900 value:FISettings.shared.width];
     [self addSlider:@"高度" min:20 max:1200 value:FISettings.shared.height];
     [self addSlider:@"透明度" min:0.05 max:1 value:FISettings.shared.alpha];
-    self.toggleButton = [UIButton buttonWithType:UIButtonTypeSystem]; self.toggleButton.titleLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightSemibold]; [self.toggleButton addTarget:self action:@selector(toggle) forControlEvents:UIControlEventTouchUpInside]; [stack addArrangedSubview:self.toggleButton];
-    UIButton *reset = [UIButton buttonWithType:UIButtonTypeSystem]; [reset setTitle:@"重置五项参数" forState:UIControlStateNormal]; [reset addTarget:self action:@selector(resetValues) forControlEvents:UIControlEventTouchUpInside]; [stack addArrangedSubview:reset];
-    UILabel *note = [self label:@"Beta 测试版：全局显示与触摸穿透依赖 TrollStore 私有系统接口，请在 iPadOS 17.0 实机验证。图片显示层不接收触摸事件。"]; note.numberOfLines = 0; note.textColor = UIColor.secondaryLabelColor; [stack addArrangedSubview:note];
+
+    self.toggleButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.toggleButton.titleLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightSemibold];
+    [self.toggleButton addTarget:self action:@selector(toggle) forControlEvents:UIControlEventTouchUpInside];
+    [stack addArrangedSubview:self.toggleButton];
+
+    UIButton *reset = [UIButton buttonWithType:UIButtonTypeSystem];
+    [reset setTitle:@"重置参数" forState:UIControlStateNormal];
+    [reset addTarget:self action:@selector(resetValues) forControlEvents:UIControlEventTouchUpInside];
+    [stack addArrangedSubview:reset];
 }
+
 - (void)addSlider:(NSString *)name min:(float)min max:(float)max value:(float)value {
-    UILabel *l = [self label:name];
-    UIStackView *row = [UIStackView new]; row.axis = UILayoutConstraintAxisVertical; row.spacing = 4;
-    [row addArrangedSubview:l];
-    UISlider *slider = [UISlider new]; slider.minimumValue = min; slider.maximumValue = max; slider.value = value; [slider addTarget:self action:@selector(sliderChanged:) forControlEvents:UIControlEventValueChanged];
-    [row addArrangedSubview:slider]; [self.sliders addObject:slider];
+    UIStackView *row = [UIStackView new];
+    row.axis = UILayoutConstraintAxisVertical;
+    row.spacing = 3;
+    [row addArrangedSubview:[self label:name]];
+    UISlider *slider = [UISlider new];
+    slider.minimumValue = min;
+    slider.maximumValue = max;
+    slider.value = value;
+    [slider addTarget:self action:@selector(sliderChanged:) forControlEvents:UIControlEventValueChanged];
+    [row addArrangedSubview:slider];
+    [self.sliders addObject:slider];
     [self.contentStack addArrangedSubview:row];
 }
+
 - (void)pickImage {
-    PHPickerConfiguration *config = [PHPickerConfiguration new]; config.filter = PHPickerFilter.imagesFilter; config.selectionLimit = 1;
-    PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:config]; picker.delegate = self; [self presentViewController:picker animated:YES completion:nil];
+    PHPickerConfiguration *configuration = [PHPickerConfiguration new];
+    configuration.filter = PHPickerFilter.imagesFilter;
+    configuration.selectionLimit = 1;
+    PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:configuration];
+    picker.delegate = self;
+    [self presentViewController:picker animated:YES completion:nil];
 }
+
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
     [picker dismissViewControllerAnimated:YES completion:nil];
     NSItemProvider *provider = results.firstObject.itemProvider;
@@ -92,125 +143,186 @@
         self.status.text = @"未选择图片";
         return;
     }
-    self.status.text = @"正在读取所选图片…";
-    TCLog(@"Image picker started; provider types=%@", provider.registeredTypeIdentifiers);
-    // 使用 NSItemProvider 的通用图片类型接口，避免依赖 UTType 运行时类及额外链接。
-    NSString *imageType = @"public.image";
-    if (![provider hasItemConformingToTypeIdentifier:imageType]) {
-        self.status.text = @"无法识别图片格式，请换一张图片";
-        TCLog(@"Selected item provider has no public.image representation; types=%@", provider.registeredTypeIdentifiers);
+
+    NSMutableArray<NSString *> *types = [provider.registeredTypeIdentifiers mutableCopy];
+    NSArray *priority = @[@"public.png", @"public.jpeg", @"public.heic", @"public.jpg", @"public.image"];
+    [types sortUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+        NSUInteger ai = [priority indexOfObject:a];
+        NSUInteger bi = [priority indexOfObject:b];
+        if (ai == NSNotFound) ai = NSUIntegerMax;
+        if (bi == NSNotFound) bi = NSUIntegerMax;
+        return ai < bi ? NSOrderedAscending : (ai > bi ? NSOrderedDescending : NSOrderedSame);
+    }];
+    TCLog(@"Picker representations: %@", types);
+    self.status.text = @"正在读取图片…";
+    [self loadImageFromProvider:provider types:types index:0];
+}
+
+- (void)loadImageFromProvider:(NSItemProvider *)provider types:(NSArray<NSString *> *)types index:(NSUInteger)index {
+    if (index >= types.count) {
+        self.status.text = @"图片读取失败";
+        TCLog(@"All image representations failed: %@", types);
         return;
     }
 
-    // iOS 17 上部分 PHPicker 项目无法通过 loadObjectOfClass: 解码 public.png；
-    // 直接请求通用图片表示，再由 UIImage 解码。
-    [provider loadDataRepresentationForTypeIdentifier:imageType completionHandler:^(NSData *imageData, NSError *error) {
-        UIImage *image = imageData.length ? [UIImage imageWithData:imageData] : nil;
-        TCLog(@"Image provider completed; type=%@ bytes=%lu error=%@", imageType, (unsigned long)imageData.length, error);
-        if (!image) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                self.status.text = [NSString stringWithFormat:@"读取图片失败：%@", error.localizedDescription ?: @"图片数据为空或无法解码"];
-            });
-            TCLog(@"PHPicker data load failed; type=%@ error=%@", imageType, error);
-            return;
+    NSString *type = types[index];
+    if (![provider hasItemConformingToTypeIdentifier:type]) {
+        [self loadImageFromProvider:provider types:types index:index + 1];
+        return;
+    }
+
+    [provider loadDataRepresentationForTypeIdentifier:type completionHandler:^(NSData *data, NSError *error) {
+        UIImage *image = data.length ? [UIImage imageWithData:data] : nil;
+        TCLog(@"Image representation %@: bytes=%lu error=%@", type, (unsigned long)data.length, error);
+        if (image) {
+            [self savePickedImage:image];
+        } else {
+            [self loadImageFromProvider:provider types:types index:index + 1];
         }
-        NSData *data = UIImagePNGRepresentation(image);
-        if (data.length == 0) {
-            dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片转换失败，请重新选择"; });
-            return;
-        }
-        NSURL *dir = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
-        NSError *directoryError = nil;
-        if (![NSFileManager.defaultManager createDirectoryAtURL:dir withIntermediateDirectories:YES attributes:nil error:&directoryError]) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                self.status.text = [NSString stringWithFormat:@"无法创建图片存储目录：%@", directoryError.localizedDescription ?: @"未知错误"];
-            });
-            return;
-        }
-        NSURL *url = [dir URLByAppendingPathComponent:@"TrollCrosshair.png"];
-        NSError *writeError = nil;
-        if (![data writeToURL:url options:NSDataWritingAtomic error:&writeError]) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                self.status.text = [NSString stringWithFormat:@"保存图片失败：%@", writeError.localizedDescription ?: @"未知错误"];
-            });
-            return;
-        }
-        dispatch_async(dispatch_get_main_queue(), ^{
-            self.imageURL = url;
-            self.preview.image = image;
-            [self updatePreview];
-            [[FloatingController shared] showImageAtURL:url];
-            [[FloatingController shared] setEnabled:YES];
-            self.status.text = [FloatingController shared].isOverlayReady
-                ? @"图片已载入，悬浮已开启"
-                : @"图片已保存并开启；系统悬浮窗口尚未连接";
-            [self updateToggleTitle];
-            TCLog(@"Selected image saved (%lu bytes), type=%@ overlayReady=%d",
-                  (unsigned long)data.length, imageType, [FloatingController shared].isOverlayReady);
-        });
     }];
 }
-- (void)exportDiagnostics {
+
+- (void)savePickedImage:(UIImage *)image {
+    NSData *data = UIImagePNGRepresentation(image);
+    if (!data.length) {
+        dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片转换失败"; });
+        return;
+    }
+    NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
+    NSError *error = nil;
+    if (![NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:&error]) {
+        dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"无法保存图片"; });
+        TCLog(@"Create image directory failed: %@", error);
+        return;
+    }
+    NSURL *url = [directory URLByAppendingPathComponent:@"TrollCrosshair.png"];
+    if (![data writeToURL:url options:NSDataWritingAtomic error:&error]) {
+        dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片保存失败"; });
+        TCLog(@"Save image failed: %@", error);
+        return;
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self.imageURL = url;
+        self.preview.image = image;
+        [self updatePreview];
+        [[FloatingController shared] showImageAtURL:url];
+        [[FloatingController shared] setEnabled:YES];
+        self.status.text = @"图片已载入";
+        [self updateToggleTitle];
+    });
+    TCLog(@"Picked image saved: %lu bytes", (unsigned long)data.length);
+}
+
+- (void)loadSavedOrDefaultImage {
+    NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
+    NSURL *savedURL = [directory URLByAppendingPathComponent:@"TrollCrosshair.png"];
+    UIImage *image = [UIImage imageWithContentsOfFile:savedURL.path];
+
+    if (!image) {
+        NSString *resourcePath = [NSBundle.mainBundle pathForResource:@"IMG_9324.png" ofType:@"b64"];
+        NSString *encoded = resourcePath ? [NSString stringWithContentsOfFile:resourcePath encoding:NSUTF8StringEncoding error:nil] : nil;
+        NSData *pngData = encoded ? [[NSData alloc] initWithBase64EncodedString:[encoded stringByReplacingOccurrencesOfString:@"\n" withString:@""] options:NSDataBase64DecodingIgnoreUnknownCharacters] : nil;
+        image = pngData.length ? [UIImage imageWithData:pngData] : nil;
+        if (image) {
+            [NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:nil];
+            [pngData writeToURL:savedURL options:NSDataWritingAtomic error:nil];
+            TCLog(@"Installed bundled default image");
+        } else {
+            TCLog(@"Bundled default image could not be loaded");
+        }
+    } else {
+        TCLog(@"Restored user-selected image");
+    }
+
+    if (image) {
+        self.imageURL = savedURL;
+        self.preview.image = image;
+        [[FloatingController shared] showImageAtURL:savedURL];
+        self.status.text = @"图片已就绪";
+    } else {
+        self.status.text = @"请选择图片";
+    }
+}
+
+- (void)copyDiagnostics {
     NSURL *url = TCLogFileURL();
-    if (![NSFileManager.defaultManager fileExistsAtPath:url.path]) TCLog(@"Diagnostic log export requested; no previous entries");
-    UIActivityViewController *activity = [[UIActivityViewController alloc] initWithActivityItems:@[url] applicationActivities:nil];
-    UIPopoverPresentationController *popover = activity.popoverPresentationController;
-    popover.sourceView = self.view;
-    popover.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
-    [self presentViewController:activity animated:YES completion:nil];
+    NSString *log = [NSString stringWithContentsOfURL:url encoding:NSUTF8StringEncoding error:nil];
+    if (log.length == 0) log = @"暂无诊断日志";
+    UIPasteboard.generalPasteboard.string = log;
+    self.status.text = @"日志已复制";
 }
-- (void)loadSavedImage {
-    NSURL *dir = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
-    NSURL *url = [dir URLByAppendingPathComponent:@"TrollCrosshair.png"];
-    UIImage *image = [UIImage imageWithContentsOfFile:url.path];
-    if (image) { TCLog(@"Restored saved image from %@", url.path); self.imageURL = url; self.preview.image = image; self.status.text = @"已载入上次选择的图片"; [[FloatingController shared] showImageAtURL:url]; }
-}
+
 - (void)sliderChanged:(UISlider *)slider {
-    NSInteger i = [self.sliders indexOfObject:slider]; FISettings *s = FISettings.shared;
-    switch (i) { case 0: s.x = slider.value; break; case 1: s.y = slider.value; break; case 2: s.width = slider.value; break; case 3: s.height = slider.value; break; case 4: s.alpha = slider.value; break; }
-    [s save]; [self updatePreview]; [[FloatingController shared] refresh];
-    TCLog(@"Setting changed: index=%ld x=%.1f y=%.1f width=%.1f height=%.1f alpha=%.2f", (long)i, s.x, s.y, s.width, s.height, s.alpha);
+    NSInteger index = [self.sliders indexOfObject:slider];
+    FISettings *settings = FISettings.shared;
+    switch (index) {
+        case 0: settings.x = slider.value; break;
+        case 1: settings.y = slider.value; break;
+        case 2: settings.width = slider.value; break;
+        case 3: settings.height = slider.value; break;
+        case 4: settings.alpha = slider.value; break;
+    }
+    [settings save];
+    [self updatePreview];
+    [[FloatingController shared] refresh];
+    TCLog(@"Setting changed: %ld %.1f %.1f %.1f %.1f %.2f", (long)index, settings.x, settings.y, settings.width, settings.height, settings.alpha);
 }
+
 - (void)updatePreview {
     if (!self.preview || !self.previewContainer || !self.preview.image) return;
-    FISettings *s = FISettings.shared;
+    FISettings *settings = FISettings.shared;
     CGRect bounds = self.previewContainer.bounds;
     if (CGRectIsEmpty(bounds)) return;
-
-    CGFloat maxPreviewSide = MIN(220.0, MIN(bounds.size.width - 24.0, bounds.size.height - 24.0));
-    CGFloat largestSide = MAX(s.width, s.height);
-    CGFloat scale = largestSide > 0 ? MIN(1.0, maxPreviewSide / largestSide) : 1.0;
-    CGFloat width = MAX(1.0, s.width * scale);
-    CGFloat height = MAX(1.0, s.height * scale);
-
+    CGFloat maxSide = MIN(200.0, MIN(bounds.size.width - 24.0, bounds.size.height - 24.0));
+    CGFloat largest = MAX(settings.width, settings.height);
+    CGFloat scale = largest > 0 ? MIN(1.0, maxSide / largest) : 1.0;
+    CGFloat width = MAX(1.0, settings.width * scale);
+    CGFloat height = MAX(1.0, settings.height * scale);
     self.preview.bounds = CGRectMake(0, 0, width, height);
-    self.preview.center = CGPointMake(CGRectGetMidX(bounds) + s.x * 0.15,
-                                      CGRectGetMidY(bounds) + s.y * 0.15);
-    self.preview.alpha = MIN(1.0, MAX(0.0, s.alpha));
+    self.preview.center = CGPointMake(CGRectGetMidX(bounds) + settings.x * 0.15,
+                                      CGRectGetMidY(bounds) + settings.y * 0.15);
+    self.preview.alpha = MIN(1.0, MAX(0.0, settings.alpha));
 }
+
 - (void)syncControls {
-    FISettings *s = FISettings.shared;
-    NSArray *v = @[@(s.x),@(s.y),@(s.width),@(s.height),@(s.alpha)];
-    for (NSUInteger i=0; i<MIN(v.count,self.sliders.count); i++) self.sliders[i].value = [v[i] floatValue];
-    [self updatePreview]; [self updateToggleTitle];
+    FISettings *settings = FISettings.shared;
+    NSArray *values = @[@(settings.x), @(settings.y), @(settings.width), @(settings.height), @(settings.alpha)];
+    for (NSUInteger i = 0; i < MIN(values.count, self.sliders.count); i++) self.sliders[i].value = [values[i] floatValue];
+    [self updatePreview];
+    [self updateToggleTitle];
 }
+
 - (void)shortcutStateChanged { [self updateToggleTitle]; [self updatePreview]; }
+
 - (void)overlayReady {
-    self.status.text = FISettings.shared.isEnabled ? @"系统悬浮窗口已连接，悬浮已开启" : @"系统悬浮窗口已连接，悬浮当前关闭";
+    self.status.text = FISettings.shared.isEnabled ? @"悬浮已开启" : @"图片已就绪";
     [self updateToggleTitle];
 }
+
 - (void)dealloc { [[NSNotificationCenter defaultCenter] removeObserver:self]; }
-- (void)updateToggleTitle { [self.toggleButton setTitle:(FISettings.shared.isEnabled ? @"关闭悬浮" : @"开启悬浮") forState:UIControlStateNormal]; }
+
+- (void)updateToggleTitle {
+    [self.toggleButton setTitle:(FISettings.shared.isEnabled ? @"关闭悬浮" : @"开启悬浮") forState:UIControlStateNormal];
+}
+
 - (void)toggle {
-    if (!self.imageURL && !FISettings.shared.isEnabled) { self.status.text = @"请先选择一张图片"; return; }
-    BOOL next = !FISettings.shared.isEnabled;
-    TCLog(@"Toggle requested: enabled=%d overlayReady=%d", next, [FloatingController shared].isOverlayReady);
-    [[FloatingController shared] setEnabled:next];
-    self.status.text = next ? ([FloatingController shared].isOverlayReady ? @"悬浮已开启" : @"已开启，但系统悬浮窗口尚未连接") : @"悬浮已关闭";
+    if (!self.imageURL && !FISettings.shared.isEnabled) {
+        self.status.text = @"请先选择图片";
+        return;
+    }
+    BOOL enabled = !FISettings.shared.isEnabled;
+    [[FloatingController shared] setEnabled:enabled];
+    self.status.text = enabled ? @"悬浮已开启" : @"悬浮已关闭";
     [self updateToggleTitle];
+    TCLog(@"Floating toggle: %d overlayReady=%d", enabled, [FloatingController shared].isOverlayReady);
 }
+
 - (void)resetValues {
-    [FISettings.shared reset]; [self syncControls]; [[FloatingController shared] refresh];
+    [FISettings.shared reset];
+    [self syncControls];
+    [[FloatingController shared] refresh];
 }
+
 - (void)viewDidLayoutSubviews { [super viewDidLayoutSubviews]; [self updatePreview]; }
+
 @end
