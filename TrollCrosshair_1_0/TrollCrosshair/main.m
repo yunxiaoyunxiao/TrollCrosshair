@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import <string.h>
 #import "AppDelegate.h"
 #import "FloatingController.h"
 
