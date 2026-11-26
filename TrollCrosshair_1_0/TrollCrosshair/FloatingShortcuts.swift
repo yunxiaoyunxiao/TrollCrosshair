@@ -50,8 +50,8 @@ struct FloatingAppShortcuts: AppShortcutsProvider {
             AppShortcut(
                 intent: ToggleFloatingIntent(),
                 phrases: [
-                    "切换图片悬浮，使用\\(.applicationName)",
-                    "悬浮开关，使用\\(.applicationName)"
+                    "切换图片悬浮，使用\(.applicationName)",
+                    "悬浮开关，使用\(.applicationName)"
                 ],
                 shortTitle: "悬浮开关",
                 systemImageName: "rectangle.on.rectangle"
@@ -59,7 +59,7 @@ struct FloatingAppShortcuts: AppShortcutsProvider {
             AppShortcut(
                 intent: EnableFloatingIntent(),
                 phrases: [
-                    "开启图片悬浮，使用\\(.applicationName)"
+                    "开启图片悬浮，使用\(.applicationName)"
                 ],
                 shortTitle: "开启悬浮",
                 systemImageName: "rectangle.on.rectangle"
@@ -67,7 +67,7 @@ struct FloatingAppShortcuts: AppShortcutsProvider {
             AppShortcut(
                 intent: DisableFloatingIntent(),
                 phrases: [
-                    "关闭图片悬浮，使用\\(.applicationName)"
+                    "关闭图片悬浮，使用\(.applicationName)"
                 ],
                 shortTitle: "关闭悬浮",
                 systemImageName: "rectangle.slash"
