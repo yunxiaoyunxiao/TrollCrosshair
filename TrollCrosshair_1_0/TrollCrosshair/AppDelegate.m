@@ -20,20 +20,14 @@
     NSString *command = url.host.lowercaseString;
     if (command.length == 0) command = url.path.lowercaseString;
     FloatingController *floating = FloatingController.shared;
+    BOOL hasImage = [NSUserDefaults.standardUserDefaults dataForKey:@"fi.overlayImageData"].length > 0;
     if ([command isEqualToString:@"show"] || [command isEqualToString:@"on"]) {
-        NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
-        NSURL *imageURL = [directory URLByAppendingPathComponent:@"TrollCrosshair.png"];
-        if ([NSFileManager.defaultManager fileExistsAtPath:imageURL.path]) {
-            [floating showImageAtURL:imageURL];
-            [floating setEnabled:YES];
-        }
+        if (hasImage) [floating setEnabled:YES];
     } else if ([command isEqualToString:@"hide"] || [command isEqualToString:@"off"]) {
         [floating setEnabled:NO];
     } else if ([command isEqualToString:@"toggle"]) {
         BOOL next = !FISettings.shared.isEnabled;
-        NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
-        NSURL *imageURL = [directory URLByAppendingPathComponent:@"TrollCrosshair.png"];
-        if (next && [NSFileManager.defaultManager fileExistsAtPath:imageURL.path]) [floating showImageAtURL:imageURL];
+        if (next && !hasImage) return YES;
         [floating setEnabled:next];
     } else {
         return NO;
