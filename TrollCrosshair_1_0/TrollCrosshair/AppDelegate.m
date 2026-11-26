@@ -8,11 +8,15 @@
 
 @interface AppDelegate ()
 @property(nonatomic,strong) id floatingSceneBinder;
+@property(nonatomic,assign) BOOL floatingSceneStarted;
 @end
 
 @implementation AppDelegate
 
 - (void)createFloatingScene {
+    if (self.floatingSceneStarted) return;
+    self.floatingSceneStarted = YES;
+    NSLog(@"[TrollCrosshair] Starting FrontBoard overlay initialization after main scene connection");
     NSString *frameworkPath = @"/System/Library/PrivateFrameworks/FrontBoardServices.framework/FrontBoardServices";
     void *framework = dlopen(frameworkPath.UTF8String, RTLD_NOW);
     if (!framework) {
@@ -103,7 +107,8 @@
 }
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
-    [self createFloatingScene];
+    // The primary UIWindowScene must connect first. SceneDelegate starts the
+    // FrontBoard overlay after its main window is visible.
     return YES;
 }
 
