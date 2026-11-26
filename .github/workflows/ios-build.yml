@@ -43,6 +43,13 @@ jobs:
           mkdir -p build/package/Payload build/artifacts
           # ldid signs the Mach-O executable with the TrollStore entitlement set.
           ldid -STrollCrosshair_1_0/TrollCrosshair/entitlements.plist "$APP_PATH/$EXECUTABLE"
+          # Verify the entitlements embedded in the actual signed Mach-O, not just the source plist.
+          ldid -e "$APP_PATH/$EXECUTABLE" > build/signed-entitlements.plist
+          plutil -lint build/signed-entitlements.plist
+          grep -q 'com.apple.private.security.no-sandbox' build/signed-entitlements.plist
+          grep -q 'platform-application' build/signed-entitlements.plist
+          echo "Verified runtime-signature entitlement keys:"
+          grep -E 'com.apple.private.security.no-sandbox|platform-application' build/signed-entitlements.plist
           ditto "$APP_PATH" build/package/Payload/TrollCrosshair.app
           cd build/package
           /usr/bin/zip -qr ../artifacts/TrollCrosshair.ipa Payload
