@@ -1,4 +1,5 @@
 #import "SceneDelegate.h"
+#import "AppDelegate.h"
 #import "TCLogger.h"
 #import "RootViewController.h"
 
