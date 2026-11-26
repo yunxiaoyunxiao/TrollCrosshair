@@ -169,26 +169,25 @@
 }
 
 - (void)loadImageFromProvider:(NSItemProvider *)provider types:(NSArray<NSString *> *)types index:(NSUInteger)index {
-    // PHPicker's preferred image path is loadObjectOfClass:UIImage. Asking the
-    // provider for a particular advertised UTI (for example public.png) can
-    // fail even when the photo itself is available.
+    // Always ask Photos for UIImage. Do not fall back to public.png/public.jpeg:
+    // providers may advertise those UTIs without vending that representation.
+    self.status.text = @"正在读取图片…";
     __weak typeof(self) weakSelf = self;
-    if ([provider canLoadObjectOfClass:UIImage.class]) {
-        [provider loadObjectOfClass:UIImage.class completionHandler:^(id<NSItemProviderReading> object, NSError *error) {
-            __strong typeof(weakSelf) self = weakSelf;
-            if (!self) return;
-            UIImage *image = [object isKindOfClass:UIImage.class] ? (UIImage *)object : nil;
-            if (!image) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    self.status.text = error.localizedDescription.length
-                        ? [NSString stringWithFormat:@"图片读取失败：%@", error.localizedDescription]
-                        : @"图片读取失败，请换一张图片";
-                });
-                return;
-            }
+    [provider loadObjectOfClass:UIImage.class completionHandler:^(id<NSItemProviderReading> object, NSError *error) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self) return;
+        UIImage *image = [object isKindOfClass:UIImage.class] ? (UIImage *)object : nil;
+        if (!image) {
+            NSString *detail = error.localizedDescription.length ? error.localizedDescription : @"系统没有返回可读取的图片";
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.status.text = [NSString stringWithFormat:@"图片读取失败：%@", detail];
+            });
+            return;
+        }
 
-            // Render into a bounded transparent bitmap. Drawing UIImage also
-            // applies its orientation metadata before encoding to PNG.
+        @autoreleasepool {
+            // Bound the output dimensions and normalize orientation while
+            // retaining alpha. UIImage's renderer handles HEIC/JPEG/PNG alike.
             CGFloat longest = MAX(image.size.width, image.size.height);
             CGFloat factor = longest > 2048.0 ? 2048.0 / longest : 1.0;
             CGSize targetSize = CGSizeMake(MAX(1.0, image.size.width * factor),
@@ -225,82 +224,7 @@
                 self.status.text = @"图片已保存，点击“开启悬浮”启动";
                 [self updateToggleTitle];
             });
-        }];
-        return;
-    }
-
-    // Only use UTI data loading for providers that cannot vend UIImage.
-    if (index >= types.count) {
-        self.status.text = @"系统照片提供器不支持读取此图片";
-        return;
-    }
-    NSString *type = types[index];
-    if (![provider hasItemConformingToTypeIdentifier:type]) {
-        [self loadImageFromProvider:provider types:types index:index + 1];
-        return;
-    }
-    [provider loadDataRepresentationForTypeIdentifier:type completionHandler:^(NSData *data, NSError *error) {
-        __strong typeof(weakSelf) self = weakSelf;
-        if (!self) return;
-        if (!data.length || error) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self loadImageFromProvider:provider types:types index:index + 1];
-            });
-            return;
         }
-        CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)data, NULL);
-        if (!source) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self loadImageFromProvider:provider types:types index:index + 1];
-            });
-            return;
-        }
-        NSDictionary *options = @{
-            (__bridge NSString *)kCGImageSourceCreateThumbnailFromImageAlways: @YES,
-            (__bridge NSString *)kCGImageSourceThumbnailMaxPixelSize: @2048,
-            (__bridge NSString *)kCGImageSourceCreateThumbnailWithTransform: @YES,
-            (__bridge NSString *)kCGImageSourceShouldCache: @NO
-        };
-        CGImageRef thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, (__bridge CFDictionaryRef)options);
-        CFRelease(source);
-        if (!thumbnail) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self loadImageFromProvider:provider types:types index:index + 1];
-            });
-            return;
-        }
-        NSMutableData *pngData = [NSMutableData data];
-        CGImageDestinationRef destination = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)pngData, CFSTR("public.png"), 1, NULL);
-        BOOL finalized = NO;
-        if (destination) {
-            CGImageDestinationAddImage(destination, thumbnail, NULL);
-            finalized = CGImageDestinationFinalize(destination);
-            CFRelease(destination);
-        }
-        UIImage *previewImage = [UIImage imageWithCGImage:thumbnail];
-        CGImageRelease(thumbnail);
-        if (!finalized || !pngData.length) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self loadImageFromProvider:provider types:types index:index + 1];
-            });
-            return;
-        }
-        NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
-        NSError *writeError = nil;
-        [NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:&writeError];
-        NSURL *savedURL = [directory URLByAppendingPathComponent:@"TrollCrosshair.png"];
-        if (![pngData writeToURL:savedURL options:NSDataWritingAtomic error:&writeError]) {
-            dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片保存失败"; });
-            return;
-        }
-        dispatch_async(dispatch_get_main_queue(), ^{
-            self.imageURL = savedURL;
-            self.preview.image = previewImage;
-            [self updatePreview];
-            [[FloatingController shared] showImageAtURL:savedURL];
-            self.status.text = @"图片已保存，点击“开启悬浮”启动";
-            [self updateToggleTitle];
-        });
     }];
 }
 
