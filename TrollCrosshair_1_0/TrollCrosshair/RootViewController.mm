@@ -19,6 +19,7 @@
     self.view.backgroundColor = UIColor.systemBackgroundColor;
     self.sliders = [NSMutableArray array];
     [self buildUI];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(shortcutStateChanged) name:@"TrollCrosshairStateChanged" object:nil];
     [self loadSavedImage];
     [self syncControls];
 }
@@ -133,6 +134,8 @@
     for (NSUInteger i=0; i<MIN(v.count,self.sliders.count); i++) self.sliders[i].value = [v[i] floatValue];
     [self updatePreview]; [self updateToggleTitle];
 }
+- (void)shortcutStateChanged { [self updateToggleTitle]; [self updatePreview]; }
+- (void)dealloc { [[NSNotificationCenter defaultCenter] removeObserver:self]; }
 - (void)updateToggleTitle { [self.toggleButton setTitle:(FISettings.shared.isEnabled ? @"关闭悬浮" : @"开启悬浮") forState:UIControlStateNormal]; }
 - (void)toggle {
     if (!self.imageURL && !FISettings.shared.isEnabled) { self.status.text = @"请先选择一张图片"; return; }
