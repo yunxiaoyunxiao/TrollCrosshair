@@ -1,4 +1,5 @@
 #import "AppDelegate.h"
+#import "TCLogger.h"
 #import "RootViewController.h"
 #import "SceneDelegate.h"
 #import "FISettings.h"
@@ -16,18 +17,18 @@
 - (void)createFloatingScene {
     if (self.floatingSceneStarted) return;
     self.floatingSceneStarted = YES;
-    NSLog(@"[TrollCrosshair] Starting FrontBoard overlay initialization after main scene connection");
+    TCLog(@"[TrollCrosshair] Starting FrontBoard overlay initialization after main scene connection");
     NSString *frameworkPath = @"/System/Library/PrivateFrameworks/FrontBoardServices.framework/FrontBoardServices";
     void *framework = dlopen(frameworkPath.UTF8String, RTLD_NOW);
     if (!framework) {
-        NSLog(@"[TrollCrosshair] Unable to load FrontBoardServices: %s", dlerror());
+        TCLog(@"[TrollCrosshair] Unable to load FrontBoardServices: %s", dlerror());
         return;
     }
 
     typedef void (*FBSystemShellInitializeFunction)(id);
     FBSystemShellInitializeFunction initialize = (FBSystemShellInitializeFunction)dlsym(framework, "FBSystemShellInitialize");
     if (!initialize) {
-        NSLog(@"[TrollCrosshair] FBSystemShellInitialize is unavailable");
+        TCLog(@"[TrollCrosshair] FBSystemShellInitialize is unavailable");
         return;
     }
 
@@ -49,7 +50,7 @@
 
             if (!managerClass || !definitionClass || !identityClass || !clientIdentityClass ||
                 !specificationClass || !parametersClass || !settingsClass || !clientSettingsClass || !binderClass) {
-                NSLog(@"[TrollCrosshair] Required FrontBoard classes are unavailable");
+                TCLog(@"[TrollCrosshair] Required FrontBoard classes are unavailable");
                 return;
             }
 
@@ -91,7 +92,7 @@
 
             id scene = send2(manager, sel_registerName("createSceneWithDefinition:initialParameters:"), definition, parameters);
             if (!scene) {
-                NSLog(@"[TrollCrosshair] FrontBoard did not create the overlay scene");
+                TCLog(@"[TrollCrosshair] FrontBoard did not create the overlay scene");
                 return;
             }
 
@@ -99,9 +100,9 @@
             id binder = initBinder([binderClass alloc], sel_registerName("initWithPriority:displayConfiguration:"), 0, displayConfiguration);
             ((void (*)(id, SEL, id))objc_msgSend)(binder, sel_registerName("addScene:"), scene);
             self.floatingSceneBinder = binder;
-            NSLog(@"[TrollCrosshair] Global overlay scene created");
+            TCLog(@"[TrollCrosshair] Global overlay scene created");
         } @catch (NSException *exception) {
-            NSLog(@"[TrollCrosshair] FrontBoard setup failed: %@", exception);
+            TCLog(@"[TrollCrosshair] FrontBoard setup failed: %@", exception);
         }
     });
 }
