@@ -239,46 +239,54 @@
 }
 
 - (void)processSelectedImage:(UIImage *)image {
-    if (!image) return;
-    @autoreleasepool {
-                // Bound the output dimensions and normalize orientation while
-                // retaining alpha. UIImage's renderer handles HEIC/JPEG/PNG alike.
-                CGFloat longest = MAX(image.size.width, image.size.height);
-                CGFloat factor = longest > 2048.0 ? 2048.0 / longest : 1.0;
-                CGSize targetSize = CGSizeMake(MAX(1.0, image.size.width * factor),
-                                               MAX(1.0, image.size.height * factor));
-                UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat defaultFormat];
-                format.scale = 1.0;
-                format.opaque = NO;
-                UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:targetSize format:format];
-                UIImage *normalizedImage = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
-                    [image drawInRect:(CGRect){CGPointZero, targetSize}];
-                }];
-                NSData *pngData = UIImagePNGRepresentation(normalizedImage);
-                if (!pngData.length) {
-                    dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片编码失败，请换一张图片"; });
-                    return;
-                }
-    
-                NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
-                NSError *writeError = nil;
-                if (![NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:&writeError]) {
-                    dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"无法保存图片"; });
-                    return;
-                }
-                NSURL *savedURL = [directory URLByAppendingPathComponent:@"TrollCrosshair.png"];
-                if (![pngData writeToURL:savedURL options:NSDataWritingAtomic error:&writeError]) {
-                    dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片保存失败"; });
-                    return;
-                }
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    self.imageURL = savedURL;
-                    self.preview.image = normalizedImage;
-                    [self updatePreview];
-                    [[FloatingController shared] showImageAtURL:savedURL];
-                    self.status.text = @"图片已保存，点击“开启悬浮”启动";
-                    [self updateToggleTitle];
-                });
+    if (!image) {
+        self.status.text = @"图片解码失败，请重新选择";
+        TCLog(@"processSelectedImage received nil image");
+        return;
+    }
+
+    // The ImageIO picker path has already applied orientation and capped the
+    // longest edge at 2048 px. Avoid a second UIGraphicsImageRenderer pass:
+    // it is unnecessary and can trigger UIKit rendering failures for some
+    // provider-backed images on older iOS releases.
+    @try {
+        NSData *pngData = UIImagePNGRepresentation(image);
+        if (!pngData.length) {
+            self.status.text = @"图片编码失败，请换一张图片";
+            TCLog(@"UIImagePNGRepresentation returned empty data size=%@", NSStringFromCGSize(image.size));
+            return;
+        }
+
+        NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory
+                                                                  inDomains:NSUserDomainMask].firstObject;
+        NSError *writeError = nil;
+        if (![NSFileManager.defaultManager createDirectoryAtURL:directory
+                                    withIntermediateDirectories:YES
+                                                     attributes:nil
+                                                          error:&writeError]) {
+            self.status.text = @"无法保存图片";
+            TCLog(@"Create Application Support directory failed: %@", writeError);
+            return;
+        }
+
+        NSURL *savedURL = [directory URLByAppendingPathComponent:@"TrollCrosshair.png"];
+        if (![pngData writeToURL:savedURL options:NSDataWritingAtomic error:&writeError]) {
+            self.status.text = @"图片保存失败";
+            TCLog(@"Writing selected image failed: %@", writeError);
+            return;
+        }
+
+        self.imageURL = savedURL;
+        self.preview.image = image;
+        [self updatePreview];
+        [[FloatingController shared] showImageAtURL:savedURL];
+        self.status.text = @"图片已保存，点击“开启悬浮”启动";
+        [self updateToggleTitle];
+        TCLog(@"Selected image saved successfully size=%@ bytes=%lu",
+              NSStringFromCGSize(image.size), (unsigned long)pngData.length);
+    } @catch (NSException *exception) {
+        self.status.text = @"处理图片时发生异常，请重新选择";
+        TCLog(@"Image processing exception: %@ %@", exception.name, exception.reason);
     }
 }
 
