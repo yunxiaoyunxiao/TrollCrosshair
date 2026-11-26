@@ -3,6 +3,10 @@
 #import "TCLogger.h"
 #import "FISettings.h"
 #import "FloatingController.h"
+#import <fcntl.h>
+#import <unistd.h>
+#import <errno.h>
+#import <string.h>
 
 @interface RootViewController () <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
 @property(nonatomic,strong) UIView *previewContainer;
@@ -203,33 +207,50 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
                 return;
             }
 
-            NSString *supportPath = [NSHomeDirectory() stringByAppendingPathComponent:@"tmp"];
-            NSError *writeError = nil;
-            BOOL directoryReady = [[NSFileManager defaultManager] createDirectoryAtPath:supportPath
-                                                              withIntermediateDirectories:YES
-                                                                               attributes:nil
-                                                                                    error:&writeError];
-            BOOL isDirectory = NO;
-            BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:supportPath isDirectory:&isDirectory];
-            if ((!directoryReady && !exists) || !isDirectory) {
-                NSString *message = [NSString stringWithFormat:@"无法创建图片保存目录：%@（%@，%@ %ld）", supportPath, writeError.localizedDescription ?: @"未知错误", writeError.domain ?: @"NSError", (long)writeError.code];
+            // Use the system-provided per-app temporary directory and POSIX I/O.
+            // This avoids Foundation's atomic-replacement path and exposes the exact errno.
+            NSString *supportPath = NSTemporaryDirectory();
+            NSString *filePath = [supportPath stringByAppendingPathComponent:@"TrollCrosshair.png"];
+            int fd = open(filePath.fileSystemRepresentation, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+            if (fd < 0) {
+                int savedErrno = errno;
+                NSString *message = [NSString stringWithFormat:@"图片写入失败（POSIX errno=%d）：%s；路径：%@",
+                                     savedErrno, strerror(savedErrno), filePath];
                 dispatch_async(dispatch_get_main_queue(), ^{
                     weakSelf.status.text = message;
-                    TCLog(@"Create Application Support directory failed path=%@ error=%@", supportPath, writeError);
+                    TCLog(@"POSIX open failed path=%@ errno=%d (%s)", filePath, savedErrno, strerror(savedErrno));
                 });
                 return;
             }
-
-            NSURL *savedURL = [NSURL fileURLWithPath:[supportPath stringByAppendingPathComponent:@"TrollCrosshair.png"]];
-            [[NSFileManager defaultManager] removeItemAtURL:savedURL error:nil];
-            if (![pngData writeToFile:savedURL.path options:0 error:&writeError]) {
-                NSString *message = [NSString stringWithFormat:@"图片写入失败：%@", writeError.localizedDescription ?: @"未知错误"];
+            const uint8_t *bytes = (const uint8_t *)pngData.bytes;
+            NSUInteger remaining = pngData.length;
+            BOOL writeOK = YES;
+            int savedErrno = 0;
+            while (remaining > 0) {
+                ssize_t count = write(fd, bytes, remaining);
+                if (count < 0) {
+                    if (errno == EINTR) continue;
+                    savedErrno = errno;
+                    writeOK = NO;
+                    break;
+                }
+                bytes += count;
+                remaining -= (NSUInteger)count;
+            }
+            if (close(fd) != 0 && writeOK) {
+                savedErrno = errno;
+                writeOK = NO;
+            }
+            if (!writeOK) {
+                NSString *message = [NSString stringWithFormat:@"图片写入失败（POSIX errno=%d）：%s；路径：%@",
+                                     savedErrno, strerror(savedErrno), filePath];
                 dispatch_async(dispatch_get_main_queue(), ^{
                     weakSelf.status.text = message;
-                    TCLog(@"Writing selected image failed path=%@ bytes=%lu error=%@", savedURL.path, (unsigned long)pngData.length, writeError);
+                    TCLog(@"POSIX write failed path=%@ bytes=%lu errno=%d (%s)", filePath, (unsigned long)pngData.length, savedErrno, strerror(savedErrno));
                 });
                 return;
             }
+            NSURL *savedURL = [NSURL fileURLWithPath:filePath];
 
             dispatch_async(dispatch_get_main_queue(), ^{
                 RootViewController *strongSelf = weakSelf;
