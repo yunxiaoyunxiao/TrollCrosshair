@@ -19,21 +19,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Select Xcode
         run: |
           xcodebuild -version
           xcodebuild -showsdks
-
-      - name: Unpack source
+      - name: Unpack and inspect source
         run: |
           mkdir -p source
           tar -xjf TrollCrosshair-1.2-source.tar.bz2 -C source
           PROJECT="source/TrollCrosshair-1.2/TrollCrosshair/TrollCrosshair.xcodeproj"
+          APP_SOURCE="source/TrollCrosshair-1.2/TrollCrosshair/TrollCrosshair"
           test -d "$PROJECT"
-          cp FloatingShortcuts.swift source/TrollCrosshair-1.2/TrollCrosshair/TrollCrosshair/FloatingShortcuts.swift
+          cp FloatingShortcuts.swift "$APP_SOURCE/FloatingShortcuts.swift"
+          grep -q 'sizeScale' "$APP_SOURCE/FISettings.h"
+          grep -q 'TCHUDMain' "$APP_SOURCE/main.m"
+          ! grep -q 'addSlider:@\"宽度\"' "$APP_SOURCE/RootViewController.mm"
+          ! grep -q 'addSlider:@\"高度\"' "$APP_SOURCE/RootViewController.mm"
           xcodebuild -list -project "$PROJECT"
-
       - name: Build unsigned iOS app
         run: |
           set -o pipefail
@@ -46,38 +48,38 @@ jobs:
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$PWD/DerivedData" \
             CLANG_ENABLE_OBJC_ARC=YES \
-            OTHER_LDFLAGS="-framework PhotosUI -framework UniformTypeIdentifiers" \
+            OTHER_LDFLAGS="-framework PhotosUI -framework UniformTypeIdentifiers -framework ImageIO" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             build 2>&1 | tee build.log
-
       - name: Package unsigned IPA for TrollStore testing
         run: |
           APP="$PWD/DerivedData/Build/Products/Release-iphoneos/TrollCrosshair.app"
           test -d "$APP"
+          test -x "$APP/TrollCrosshair"
           mkdir -p package/Payload
           ditto "$APP" package/Payload/TrollCrosshair.app
           cd package
-          ditto -c -k --sequesterRsrc --keepParent Payload "$GITHUB_WORKSPACE/TrollCrosshair-1.2-test-unsigned.ipa"
+          ditto -c -k --sequesterRsrc --keepParent Payload "$GITHUB_WORKSPACE/TrollCrosshair-1.2-build4-unsigned.ipa"
           cd "$GITHUB_WORKSPACE"
-          unzip -t TrollCrosshair-1.2-test-unsigned.ipa
+          unzip -t TrollCrosshair-1.2-build4-unsigned.ipa
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' package/Payload/TrollCrosshair.app/Info.plist
           /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' package/Payload/TrollCrosshair.app/Info.plist
-
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' package/Payload/TrollCrosshair.app/Info.plist
+          xcrun --sdk iphoneos lipo -info package/Payload/TrollCrosshair.app/TrollCrosshair
       - name: Upload test IPA
         uses: actions/upload-artifact@v4
         with:
-          name: TrollCrosshair-1.2-test-unsigned-IPA
-          path: TrollCrosshair-1.2-test-unsigned.ipa
+          name: TrollCrosshair-1.2-build4-unsigned-IPA
+          path: TrollCrosshair-1.2-build4-unsigned.ipa
           if-no-files-found: error
           retention-days: 30
-
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: TrollCrosshair-1.2-build-log
+          name: TrollCrosshair-1.2-build4-build-log
           path: build.log
           if-no-files-found: ignore
           retention-days: 7
