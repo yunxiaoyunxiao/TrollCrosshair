@@ -95,10 +95,9 @@
     self.preview.userInteractionEnabled = NO;
     [self.previewContainer addSubview:self.preview];
 
-    [self addSlider:@"X" min:-600 max:600 value:FISettings.shared.x];
-    [self addSlider:@"Y" min:-900 max:900 value:FISettings.shared.y];
-    [self addSlider:@"宽度" min:20 max:900 value:FISettings.shared.width];
-    [self addSlider:@"高度" min:20 max:1200 value:FISettings.shared.height];
+    [self addSlider:@"X 位置" min:-2048 max:2048 value:FISettings.shared.x];
+    [self addSlider:@"Y 位置" min:-2048 max:2048 value:FISettings.shared.y];
+    [self addSlider:@"图片大小" min:25 max:300 value:FISettings.shared.sizeScale];
     [self addSlider:@"透明度" min:0.05 max:1 value:FISettings.shared.alpha];
 
     self.toggleButton = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -258,14 +257,13 @@
     switch (index) {
         case 0: settings.x = slider.value; break;
         case 1: settings.y = slider.value; break;
-        case 2: settings.width = slider.value; break;
-        case 3: settings.height = slider.value; break;
-        case 4: settings.alpha = slider.value; break;
+        case 2: settings.sizeScale = slider.value; break;
+        case 3: settings.alpha = slider.value; break;
     }
     [settings save];
     [self updatePreview];
     [[FloatingController shared] refresh];
-    TCLog(@"Setting changed: %ld %.1f %.1f %.1f %.1f %.2f", (long)index, settings.x, settings.y, settings.width, settings.height, settings.alpha);
+    TCLog(@"Setting changed: %ld X=%.1f Y=%.1f size=%.1f%% alpha=%.2f", (long)index, settings.x, settings.y, settings.sizeScale, settings.alpha);
 }
 
 - (void)updatePreview {
@@ -273,20 +271,23 @@
     FISettings *settings = FISettings.shared;
     CGRect bounds = self.previewContainer.bounds;
     if (CGRectIsEmpty(bounds)) return;
-    CGFloat maxSide = MIN(200.0, MIN(bounds.size.width - 24.0, bounds.size.height - 24.0));
-    CGFloat largest = MAX(settings.width, settings.height);
-    CGFloat scale = largest > 0 ? MIN(1.0, maxSide / largest) : 1.0;
-    CGFloat width = MAX(1.0, settings.width * scale);
-    CGFloat height = MAX(1.0, settings.height * scale);
+    CGSize source = self.preview.image.size;
+    CGFloat longest = MAX(source.width, source.height);
+    CGFloat maxSide = MIN(190.0, MIN(bounds.size.width - 24.0, bounds.size.height - 24.0));
+    CGFloat previewScale = longest > 0 ? maxSide / longest : 1.0;
+    CGFloat width = MAX(1.0, source.width * previewScale * (settings.sizeScale / 100.0));
+    CGFloat height = MAX(1.0, source.height * previewScale * (settings.sizeScale / 100.0));
     self.preview.bounds = CGRectMake(0, 0, width, height);
-    self.preview.center = CGPointMake(CGRectGetMidX(bounds) + settings.x * 0.15,
-                                      CGRectGetMidY(bounds) + settings.y * 0.15);
+    CGFloat offsetX = settings.x * bounds.size.width / MAX(1.0, UIScreen.mainScreen.bounds.size.width);
+    CGFloat offsetY = settings.y * bounds.size.height / MAX(1.0, UIScreen.mainScreen.bounds.size.height);
+    self.preview.center = CGPointMake(CGRectGetMidX(bounds) + offsetX,
+                                      CGRectGetMidY(bounds) + offsetY);
     self.preview.alpha = MIN(1.0, MAX(0.0, settings.alpha));
 }
 
 - (void)syncControls {
     FISettings *settings = FISettings.shared;
-    NSArray *values = @[@(settings.x), @(settings.y), @(settings.width), @(settings.height), @(settings.alpha)];
+    NSArray *values = @[@(settings.x), @(settings.y), @(settings.sizeScale), @(settings.alpha)];
     for (NSUInteger i = 0; i < MIN(values.count, self.sliders.count); i++) self.sliders[i].value = [values[i] floatValue];
     [self updatePreview];
     [self updateToggleTitle];
