@@ -1,6 +1,5 @@
 #import "RootViewController.h"
 #import <PhotosUI/PhotosUI.h>
-#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import "TCLogger.h"
 #import "FISettings.h"
 #import "FloatingController.h"
@@ -95,22 +94,16 @@
     }
     self.status.text = @"正在读取所选图片…";
     TCLog(@"Image picker started; provider types=%@", provider.registeredTypeIdentifiers);
-    NSString *imageType = nil;
-    UTType *genericImageType = [UTType typeWithIdentifier:@"public.image"];
-    for (NSString *identifier in provider.registeredTypeIdentifiers) {
-        UTType *type = [UTType typeWithIdentifier:identifier];
-        if (type && genericImageType && [type conformsToType:genericImageType]) {
-            imageType = identifier;
-            break;
-        }
-    }
-    if (!imageType) {
+    // 使用 NSItemProvider 的通用图片类型接口，避免依赖 UTType 运行时类及额外链接。
+    NSString *imageType = @"public.image";
+    if (![provider hasItemConformingToTypeIdentifier:imageType]) {
         self.status.text = @"无法识别图片格式，请换一张图片";
+        TCLog(@"Selected item provider has no public.image representation; types=%@", provider.registeredTypeIdentifiers);
         return;
     }
 
     // iOS 17 上部分 PHPicker 项目无法通过 loadObjectOfClass: 解码 public.png；
-    // 直接读取提供者声明的图片类型数据，再由 UIImage 解码。
+    // 直接请求通用图片表示，再由 UIImage 解码。
     [provider loadDataRepresentationForTypeIdentifier:imageType completionHandler:^(NSData *imageData, NSError *error) {
         UIImage *image = imageData.length ? [UIImage imageWithData:imageData] : nil;
         TCLog(@"Image provider completed; type=%@ bytes=%lu error=%@", imageType, (unsigned long)imageData.length, error);
