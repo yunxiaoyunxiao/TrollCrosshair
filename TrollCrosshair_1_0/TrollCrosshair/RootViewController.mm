@@ -4,6 +4,7 @@
 #import "FloatingController.h"
 
 @interface RootViewController () <PHPickerViewControllerDelegate>
+@property(nonatomic,strong) UIView *previewContainer;
 @property(nonatomic,strong) UIImageView *preview;
 @property(nonatomic,strong) UILabel *status;
 @property(nonatomic,strong) UIButton *toggleButton;
@@ -45,8 +46,19 @@
     UILabel *title = [self label:@"FloatImage 1.0"]; title.font = [UIFont systemFontOfSize:26 weight:UIFontWeightBold]; [stack addArrangedSubview:title];
     self.status = [self label:@"尚未选择图片"]; [stack addArrangedSubview:self.status];
     UIButton *pick = [UIButton buttonWithType:UIButtonTypeSystem]; [pick setTitle:@"选择图片" forState:UIControlStateNormal]; [pick addTarget:self action:@selector(pickImage) forControlEvents:UIControlEventTouchUpInside]; [stack addArrangedSubview:pick];
-    self.preview = [UIImageView new]; self.preview.backgroundColor = UIColor.secondarySystemBackgroundColor; self.preview.contentMode = UIViewContentModeScaleAspectFit; self.preview.clipsToBounds = YES; self.preview.layer.cornerRadius = 12; self.preview.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.preview.heightAnchor constraintEqualToConstant:260].active = YES; [stack addArrangedSubview:self.preview];
+    self.previewContainer = [UIView new];
+    self.previewContainer.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    self.previewContainer.layer.cornerRadius = 12;
+    self.previewContainer.clipsToBounds = YES;
+    self.previewContainer.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.previewContainer.heightAnchor constraintEqualToConstant:260].active = YES;
+    [stack addArrangedSubview:self.previewContainer];
+
+    self.preview = [UIImageView new];
+    self.preview.contentMode = UIViewContentModeScaleToFill;
+    self.preview.userInteractionEnabled = NO;
+    self.preview.frame = CGRectZero;
+    [self.previewContainer addSubview:self.preview];
     [self addSlider:@"X（水平，中心点）" min:-600 max:600 value:FISettings.shared.x];
     [self addSlider:@"Y（垂直，中心点）" min:-900 max:900 value:FISettings.shared.y];
     [self addSlider:@"宽度" min:20 max:900 value:FISettings.shared.width];
@@ -99,13 +111,21 @@
     [s save]; [self updatePreview]; [[FloatingController shared] refresh];
 }
 - (void)updatePreview {
-    if (!self.preview.image) return;
+    if (!self.preview || !self.previewContainer || !self.preview.image) return;
     FISettings *s = FISettings.shared;
-    CGFloat scale = MIN(1.0, 220.0 / MAX(s.width, s.height));
-    self.preview.transform = CGAffineTransformIdentity;
-    self.preview.bounds = CGRectMake(0, 0, MAX(1,s.width)*scale, MAX(1,s.height)*scale);
-    self.preview.center = CGPointMake(CGRectGetMidX(self.preview.superview.bounds)+s.x*0.15, CGRectGetMidY(self.preview.superview.bounds)+s.y*0.15);
-    self.preview.alpha = s.alpha;
+    CGRect bounds = self.previewContainer.bounds;
+    if (CGRectIsEmpty(bounds)) return;
+
+    CGFloat maxPreviewSide = MIN(220.0, MIN(bounds.size.width - 24.0, bounds.size.height - 24.0));
+    CGFloat largestSide = MAX(s.width, s.height);
+    CGFloat scale = largestSide > 0 ? MIN(1.0, maxPreviewSide / largestSide) : 1.0;
+    CGFloat width = MAX(1.0, s.width * scale);
+    CGFloat height = MAX(1.0, s.height * scale);
+
+    self.preview.bounds = CGRectMake(0, 0, width, height);
+    self.preview.center = CGPointMake(CGRectGetMidX(bounds) + s.x * 0.15,
+                                      CGRectGetMidY(bounds) + s.y * 0.15);
+    self.preview.alpha = MIN(1.0, MAX(0.0, s.alpha));
 }
 - (void)syncControls {
     FISettings *s = FISettings.shared;
