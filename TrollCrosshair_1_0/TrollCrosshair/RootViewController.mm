@@ -203,7 +203,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
                 return;
             }
 
-            NSString *supportPath = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support"];
+            NSString *supportPath = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/TrollCrosshairData"];
             NSError *writeError = nil;
             BOOL directoryReady = [[NSFileManager defaultManager] createDirectoryAtPath:supportPath
                                                               withIntermediateDirectories:YES
@@ -249,7 +249,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
 }
 
 - (void)loadSavedOrDefaultImage {
-    NSString *supportPath = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support"];
+    NSString *supportPath = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/TrollCrosshairData"];
     [[NSFileManager defaultManager] createDirectoryAtPath:supportPath withIntermediateDirectories:YES attributes:nil error:nil];
     NSURL *savedURL = [NSURL fileURLWithPath:[supportPath stringByAppendingPathComponent:@"TrollCrosshair.png"]];
     UIImage *image = [UIImage imageWithContentsOfFile:savedURL.path];
@@ -260,7 +260,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         NSData *pngData = encoded ? [[NSData alloc] initWithBase64EncodedString:[encoded stringByReplacingOccurrencesOfString:@"\n" withString:@""] options:NSDataBase64DecodingIgnoreUnknownCharacters] : nil;
         image = pngData.length ? [UIImage imageWithData:pngData] : nil;
         if (image) {
-            NSString *supportPath = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support"];
+            NSString *supportPath = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/TrollCrosshairData"];
             [[NSFileManager defaultManager] createDirectoryAtPath:supportPath withIntermediateDirectories:YES attributes:nil error:nil];
             NSURL *defaultURL = [NSURL fileURLWithPath:[supportPath stringByAppendingPathComponent:@"TrollCrosshair.png"]];
             [pngData writeToURL:defaultURL options:NSDataWritingAtomic error:nil];
