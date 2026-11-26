@@ -1,5 +1,6 @@
 #import "RootViewController.h"
 #import <PhotosUI/PhotosUI.h>
+#import <notify.h>
 #import "TCLogger.h"
 #import "FISettings.h"
 #import "FloatingController.h"
@@ -12,6 +13,7 @@
 @property(nonatomic,strong) NSURL *imageURL;
 @property(nonatomic,strong) NSMutableArray<UISlider *> *sliders;
 @property(nonatomic,strong) UIStackView *contentStack;
+@property(nonatomic,assign) int readyNotifyToken;
 @end
 
 @implementation RootViewController
@@ -23,8 +25,19 @@
     [self buildUI];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(shortcutStateChanged) name:@"TrollCrosshairStateChanged" object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(overlayReady) name:@"TCFloatingOverlayReadyNotification" object:nil];
+    int readyToken = 0;
+    notify_register_dispatch("com.trollcrosshair.ready", &readyToken, dispatch_get_main_queue(), ^(int token) {
+        self.status.text = @"悬浮已开启";
+        [self updateToggleTitle];
+    });
+    self.readyNotifyToken = readyToken;
     [self loadSavedOrDefaultImage];
     [self syncControls];
+    if (FISettings.shared.isEnabled && self.imageURL) {
+        [[FloatingController shared] showImageAtURL:self.imageURL];
+        [[FloatingController shared] setEnabled:YES];
+        self.status.text = @"正在启动悬浮…";
+    }
 }
 
 - (UILabel *)label:(NSString *)text {
@@ -206,7 +219,7 @@
         [self updatePreview];
         [[FloatingController shared] showImageAtURL:url];
         [[FloatingController shared] setEnabled:YES];
-        self.status.text = @"图片已载入";
+        self.status.text = @"正在启动悬浮…";
         [self updateToggleTitle];
     });
     TCLog(@"Picked image saved: %lu bytes", (unsigned long)data.length);
@@ -300,7 +313,10 @@
     [self updateToggleTitle];
 }
 
-- (void)dealloc { [[NSNotificationCenter defaultCenter] removeObserver:self]; }
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    if (self.readyNotifyToken > 0) notify_cancel(self.readyNotifyToken);
+}
 
 - (void)updateToggleTitle {
     [self.toggleButton setTitle:(FISettings.shared.isEnabled ? @"关闭悬浮" : @"开启悬浮") forState:UIControlStateNormal];
@@ -313,7 +329,7 @@
     }
     BOOL enabled = !FISettings.shared.isEnabled;
     [[FloatingController shared] setEnabled:enabled];
-    self.status.text = enabled ? @"悬浮已开启" : @"悬浮已关闭";
+    self.status.text = enabled ? @"正在启动悬浮…" : @"悬浮已关闭";
     [self updateToggleTitle];
     TCLog(@"Floating toggle: %d overlayReady=%d", enabled, [FloatingController shared].isOverlayReady);
 }
