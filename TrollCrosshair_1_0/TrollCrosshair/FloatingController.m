@@ -2,6 +2,8 @@
 #import "TCLogger.h"
 #import "FISettings.h"
 #import <objc/runtime.h>
+#import <objc/message.h>
+#import <stdlib.h>
 #import <notify.h>
 #import <spawn.h>
 #import <signal.h>
@@ -56,7 +58,6 @@ static NSURL *TCHUDPIDURL(void) {
     [self.window makeKeyAndVisible];
 
     Class hostClass = objc_getClass("SBSAccessibilityWindowHostingController");
-    Class windowClass = objc_getClass("UIWindow");
     SEL contextSelector = sel_registerName("_contextId");
     if (!hostClass || ![self.window respondsToSelector:contextSelector]) {
         TCLog(@"HUD hosting unavailable: hostClass=%@ contextSelector=%d", hostClass, [self.window respondsToSelector:contextSelector]);
@@ -168,7 +169,7 @@ static NSURL *TCHUDPIDURL(void) {
         return;
     }
     self.hudPID = pid;
-    [@(pid).stringValue writeToURL:TCHUDPIDURL() atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    [[NSString stringWithFormat:@"%d", pid] writeToURL:TCHUDPIDURL() atomically:YES encoding:NSUTF8StringEncoding error:nil];
     TCLog(@"HUD process spawned pid=%d", pid);
 }
 - (void)stopHUDProcess {
