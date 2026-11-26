@@ -170,6 +170,20 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
     }];
 }
 
+- (void)reportImageSaveFailure:(NSString *)message {
+    NSString *home = NSHomeDirectory() ?: @"(nil)";
+    NSString *temporary = NSTemporaryDirectory() ?: @"(nil)";
+    NSString *diagnostics = [NSString stringWithFormat:
+        @"TrollCrosshair 图片保存失败\n%@\n\n运行环境诊断：\nUID: %d\nEUID: %d\nHOME: %@\nNSTemporaryDirectory: %@\nHOME 可写: %@\n临时目录可写: %@\n",
+        message ?: @"未知错误",
+        getuid(), geteuid(), home, temporary,
+        [[NSFileManager defaultManager] isWritableFileAtPath:home] ? @"YES" : @"NO",
+        [[NSFileManager defaultManager] isWritableFileAtPath:temporary] ? @"YES" : @"NO"];
+    UIPasteboard.generalPasteboard.string = diagnostics;
+    self.status.text = @"保存失败，完整错误信息已复制到剪切板";
+    TCLog(@"%@", diagnostics);
+}
+
 - (void)processSelectedImage:(UIImage *)image {
     if (!image) {
         self.status.text = @"图片解码失败，请重新选择";
@@ -201,7 +215,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
             NSData *pngData = UIImagePNGRepresentation(normalized);
             if (!pngData.length) {
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    weakSelf.status.text = @"图片编码失败，请换一张图片";
+                    [weakSelf reportImageSaveFailure:@"图片编码失败：UIImagePNGRepresentation 返回空数据"];
                     TCLog(@"UIImagePNGRepresentation returned empty data");
                 });
                 return;
@@ -217,7 +231,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
                 NSString *message = [NSString stringWithFormat:@"图片写入失败（POSIX errno=%d）：%s；路径：%@",
                                      savedErrno, strerror(savedErrno), filePath];
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    weakSelf.status.text = message;
+                    [weakSelf reportImageSaveFailure:message];
                     TCLog(@"POSIX open failed path=%@ errno=%d (%s)", filePath, savedErrno, strerror(savedErrno));
                 });
                 return;
@@ -245,7 +259,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
                 NSString *message = [NSString stringWithFormat:@"图片写入失败（POSIX errno=%d）：%s；路径：%@",
                                      savedErrno, strerror(savedErrno), filePath];
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    weakSelf.status.text = message;
+                    [weakSelf reportImageSaveFailure:message];
                     TCLog(@"POSIX write failed path=%@ bytes=%lu errno=%d (%s)", filePath, (unsigned long)pngData.length, savedErrno, strerror(savedErrno));
                 });
                 return;
