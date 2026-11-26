@@ -86,17 +86,56 @@
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
     [picker dismissViewControllerAnimated:YES completion:nil];
     NSItemProvider *provider = results.firstObject.itemProvider;
-    if (![provider canLoadObjectOfClass:UIImage.class]) return;
+    if (!provider) {
+        self.status.text = @"未选择图片";
+        return;
+    }
+    self.status.text = @"正在读取所选图片…";
+    if (![provider canLoadObjectOfClass:UIImage.class]) {
+        self.status.text = @"此图片格式暂不支持，请换一张图片";
+        return;
+    }
     [provider loadObjectOfClass:UIImage.class completionHandler:^(UIImage *image, NSError *error) {
-        if (!image || error) return;
-        NSData *data = UIImagePNGRepresentation(image); NSURL *dir = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
-        [NSFileManager.defaultManager createDirectoryAtURL:dir withIntermediateDirectories:YES attributes:nil error:nil];
+        if (!image || error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.status.text = [NSString stringWithFormat:@"读取图片失败：%@", error.localizedDescription ?: @"未知错误"];
+            });
+            NSLog(@"[TrollCrosshair] PHPicker load failed: %@", error);
+            return;
+        }
+        NSData *data = UIImagePNGRepresentation(image);
+        if (data.length == 0) {
+            dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片转换失败，请重新选择"; });
+            return;
+        }
+        NSURL *dir = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
+        NSError *directoryError = nil;
+        if (![NSFileManager.defaultManager createDirectoryAtURL:dir withIntermediateDirectories:YES attributes:nil error:&directoryError]) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.status.text = [NSString stringWithFormat:@"无法创建图片存储目录：%@", directoryError.localizedDescription ?: @"未知错误"];
+            });
+            return;
+        }
         NSURL *url = [dir URLByAppendingPathComponent:@"TrollCrosshair.png"];
-        if ([data writeToURL:url atomically:YES]) dispatch_async(dispatch_get_main_queue(), ^{
-            self.imageURL = url; self.preview.image = image; self.status.text = @"已选择图片并保存到本地";
+        NSError *writeError = nil;
+        if (![data writeToURL:url options:NSDataWritingAtomic error:&writeError]) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.status.text = [NSString stringWithFormat:@"保存图片失败：%@", writeError.localizedDescription ?: @"未知错误"];
+            });
+            return;
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.imageURL = url;
+            self.preview.image = image;
+            [self updatePreview];
             [[FloatingController shared] showImageAtURL:url];
             [[FloatingController shared] setEnabled:YES];
-            self.status.text = [FloatingController shared].isOverlayReady ? @"图片已显示，悬浮已开启" : @"图片已保存；正在等待系统悬浮窗口连接";
+            self.status.text = [FloatingController shared].isOverlayReady
+                ? @"图片已载入，悬浮已开启"
+                : @"图片已保存并开启；系统悬浮窗口尚未连接";
+            [self updateToggleTitle];
+            NSLog(@"[TrollCrosshair] Selected image saved (%lu bytes), overlayReady=%d",
+                  (unsigned long)data.length, [FloatingController shared].isOverlayReady);
         });
     }];
 }
