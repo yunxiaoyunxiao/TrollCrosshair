@@ -15,13 +15,14 @@ static NSString * const TCFloatingRefreshNotification = @"com.trollcrosshair.ref
 static NSString * const TCFloatingReadyNotification = @"com.trollcrosshair.ready";
 
 static NSURL *TCHUDImageURL(void) {
-    NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
-    return [directory URLByAppendingPathComponent:@"TrollCrosshair.png"];
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil];
+    return [NSURL fileURLWithPath:[path stringByAppendingPathComponent:@"TrollCrosshair.png"]];
 }
 static NSURL *TCHUDPIDURL(void) {
-    NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
-    [NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:nil];
-    return [directory URLByAppendingPathComponent:@"TrollCrosshair-HUD.pid"];
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil];
+    return [NSURL fileURLWithPath:[path stringByAppendingPathComponent:@"TrollCrosshair-HUD.pid"]];
 }
 
 @interface TCHUDWindow : UIWindow
