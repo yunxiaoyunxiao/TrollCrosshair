@@ -11,6 +11,12 @@
     self.window = window;
     [window makeKeyAndVisible];
     TCLog(@"Settings scene connected: %@", session.persistentIdentifier);
+
+    // Handle a Shortcuts URL when the app is launched from a terminated state.
+    AppDelegate *appDelegate = (AppDelegate *)UIApplication.sharedApplication.delegate;
+    for (UIOpenURLContext *context in connectionOptions.URLContexts) {
+        [appDelegate application:UIApplication.sharedApplication openURL:context.URL options:@{}];
+    }
 }
 - (void)scene:(UIScene *)scene openURLContexts:(NSSet<UIOpenURLContext *> *)URLContexts {
     AppDelegate *appDelegate = (AppDelegate *)UIApplication.sharedApplication.delegate;
