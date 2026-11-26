@@ -1,5 +1,6 @@
 #import "RootViewController.h"
 #import <PhotosUI/PhotosUI.h>
+#import <Photos/Photos.h>
 #import <notify.h>
 #import <ImageIO/ImageIO.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
@@ -138,7 +139,8 @@
 }
 
 - (void)pickImage {
-    PHPickerConfiguration *configuration = [PHPickerConfiguration new];
+    PHPickerConfiguration *configuration = [[PHPickerConfiguration alloc] initWithPhotoLibrary:PHPhotoLibrary.sharedPhotoLibrary];
+    configuration.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;
     configuration.filter = PHPickerFilter.imagesFilter;
     configuration.selectionLimit = 1;
     PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:configuration];
@@ -165,6 +167,32 @@
     }];
     TCLog(@"Picker representations: %@", types);
     self.status.text = @"正在读取图片…";
+    NSString *assetIdentifier = results.firstObject.assetIdentifier;
+    if (assetIdentifier.length) {
+        PHFetchResult<PHAsset *> *assets = [PHAsset fetchAssetsWithLocalIdentifiers:@[assetIdentifier] options:nil];
+        PHAsset *asset = assets.firstObject;
+        if (asset) {
+            PHImageRequestOptions *options = [PHImageRequestOptions new];
+            options.version = PHImageRequestOptionsVersionCurrent;
+            options.deliveryMode = PHImageRequestOptionsDeliveryModeHighQualityFormat;
+            options.resizeMode = PHImageRequestOptionsResizeModeFast;
+            options.networkAccessAllowed = YES;
+            __weak typeof(self) weakSelf = self;
+            [[PHImageManager defaultManager] requestImageDataAndOrientationForAsset:asset options:options resultHandler:^(NSData *imageData, NSString *dataUTI, CGImagePropertyOrientation orientation, NSDictionary *info) {
+                __strong typeof(weakSelf) self = weakSelf;
+                UIImage *image = imageData.length ? [UIImage imageWithData:imageData] : nil;
+                if (image) {
+                    [self processSelectedImage:image];
+                } else {
+                    NSError *requestError = info[PHImageErrorKey];
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        self.status.text = [NSString stringWithFormat:@"照片库读取失败：%@", requestError.localizedDescription ?: @"系统未返回图片数据"];
+                    });
+                }
+            }];
+            return;
+        }
+    }
     [self loadImageFromProvider:provider types:types index:0];
 }
 
@@ -185,47 +213,53 @@
             return;
         }
 
-        @autoreleasepool {
-            // Bound the output dimensions and normalize orientation while
-            // retaining alpha. UIImage's renderer handles HEIC/JPEG/PNG alike.
-            CGFloat longest = MAX(image.size.width, image.size.height);
-            CGFloat factor = longest > 2048.0 ? 2048.0 / longest : 1.0;
-            CGSize targetSize = CGSizeMake(MAX(1.0, image.size.width * factor),
-                                           MAX(1.0, image.size.height * factor));
-            UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat defaultFormat];
-            format.scale = 1.0;
-            format.opaque = NO;
-            UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:targetSize format:format];
-            UIImage *normalizedImage = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
-                [image drawInRect:(CGRect){CGPointZero, targetSize}];
-            }];
-            NSData *pngData = UIImagePNGRepresentation(normalizedImage);
-            if (!pngData.length) {
-                dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片编码失败，请换一张图片"; });
-                return;
-            }
-
-            NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
-            NSError *writeError = nil;
-            if (![NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:&writeError]) {
-                dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"无法保存图片"; });
-                return;
-            }
-            NSURL *savedURL = [directory URLByAppendingPathComponent:@"TrollCrosshair.png"];
-            if (![pngData writeToURL:savedURL options:NSDataWritingAtomic error:&writeError]) {
-                dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片保存失败"; });
-                return;
-            }
-            dispatch_async(dispatch_get_main_queue(), ^{
-                self.imageURL = savedURL;
-                self.preview.image = normalizedImage;
-                [self updatePreview];
-                [[FloatingController shared] showImageAtURL:savedURL];
-                self.status.text = @"图片已保存，点击“开启悬浮”启动";
-                [self updateToggleTitle];
-            });
-        }
+        [self processSelectedImage:image];
     }];
+}
+
+
+- (void)processSelectedImage:(UIImage *)image {
+    if (!image) return;
+    @autoreleasepool {
+                // Bound the output dimensions and normalize orientation while
+                // retaining alpha. UIImage's renderer handles HEIC/JPEG/PNG alike.
+                CGFloat longest = MAX(image.size.width, image.size.height);
+                CGFloat factor = longest > 2048.0 ? 2048.0 / longest : 1.0;
+                CGSize targetSize = CGSizeMake(MAX(1.0, image.size.width * factor),
+                                               MAX(1.0, image.size.height * factor));
+                UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat defaultFormat];
+                format.scale = 1.0;
+                format.opaque = NO;
+                UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:targetSize format:format];
+                UIImage *normalizedImage = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+                    [image drawInRect:(CGRect){CGPointZero, targetSize}];
+                }];
+                NSData *pngData = UIImagePNGRepresentation(normalizedImage);
+                if (!pngData.length) {
+                    dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片编码失败，请换一张图片"; });
+                    return;
+                }
+    
+                NSURL *directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
+                NSError *writeError = nil;
+                if (![NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:&writeError]) {
+                    dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"无法保存图片"; });
+                    return;
+                }
+                NSURL *savedURL = [directory URLByAppendingPathComponent:@"TrollCrosshair.png"];
+                if (![pngData writeToURL:savedURL options:NSDataWritingAtomic error:&writeError]) {
+                    dispatch_async(dispatch_get_main_queue(), ^{ self.status.text = @"图片保存失败"; });
+                    return;
+                }
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    self.imageURL = savedURL;
+                    self.preview.image = normalizedImage;
+                    [self updatePreview];
+                    [[FloatingController shared] showImageAtURL:savedURL];
+                    self.status.text = @"图片已保存，点击“开启悬浮”启动";
+                    [self updateToggleTitle];
+                });
+    }
 }
 
 - (void)loadSavedOrDefaultImage {
