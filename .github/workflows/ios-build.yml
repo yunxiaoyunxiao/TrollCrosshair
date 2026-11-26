@@ -20,6 +20,9 @@ jobs:
       - name: Show Xcode version
         run: xcodebuild -version
 
+      - name: Install ldid
+        run: brew install ldid
+
       - name: Build FloatImage
         run: |
           xcodebuild \
@@ -31,16 +34,18 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
-      - name: Package app
+      - name: Sign with TrollStore entitlements and package IPA
         run: |
-          mkdir -p build/artifacts
-          ditto -c -k --sequesterRsrc --keepParent \
-            build/DerivedData/Build/Products/Release-iphoneos/TrollCrosshair.app \
-            build/artifacts/TrollCrosshair-unsigned.zip
+          APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/TrollCrosshair.app"
+          mkdir -p build/package/Payload build/artifacts
+          ldid -STrollCrosshair_1_0/TrollCrosshair/entitlements.plist "$APP_PATH"
+          ditto "$APP_PATH" build/package/Payload/TrollCrosshair.app
+          cd build/package
+          /usr/bin/zip -qr ../artifacts/TrollCrosshair.ipa Payload
 
-      - name: Upload build artifact
+      - name: Upload TrollStore IPA
         uses: actions/upload-artifact@v4
         with:
-          name: TrollCrosshair-unsigned-app
-          path: build/artifacts/TrollCrosshair-unsigned.zip
+          name: TrollCrosshair-IPA
+          path: build/artifacts/TrollCrosshair.ipa
           if-no-files-found: error
