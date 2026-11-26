@@ -10,6 +10,7 @@
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>LSRequiresIPhoneOS</key><true/>
+<key>NSPhotoLibraryUsageDescription</key><string>用于读取你在系统照片选择器中选中的图片，并将其用于悬浮显示。</string>
 <key>UILaunchScreen</key><dict/>
 <key>BSServiceDomains</key>
 <dict>
