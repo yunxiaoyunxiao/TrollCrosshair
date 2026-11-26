@@ -37,11 +37,20 @@ jobs:
       - name: Sign with TrollStore entitlements and package IPA
         run: |
           APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/TrollCrosshair.app"
+          test -d "$APP_PATH"
+          EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_PATH/Info.plist")
+          test -f "$APP_PATH/$EXECUTABLE"
           mkdir -p build/package/Payload build/artifacts
-          ldid -STrollCrosshair_1_0/TrollCrosshair/entitlements.plist "$APP_PATH"
+          # ldid signs the Mach-O executable with the TrollStore entitlement set.
+          ldid -STrollCrosshair_1_0/TrollCrosshair/entitlements.plist "$APP_PATH/$EXECUTABLE"
           ditto "$APP_PATH" build/package/Payload/TrollCrosshair.app
           cd build/package
           /usr/bin/zip -qr ../artifacts/TrollCrosshair.ipa Payload
+          cd ../..
+          /usr/bin/unzip -t build/artifacts/TrollCrosshair.ipa
+          /usr/bin/unzip -p build/artifacts/TrollCrosshair.ipa Payload/TrollCrosshair.app/Info.plist > build/packaged-Info.plist
+          /usr/bin/plutil -lint build/packaged-Info.plist
+          test -s build/artifacts/TrollCrosshair.ipa
 
       - name: Upload TrollStore IPA
         uses: actions/upload-artifact@v4
