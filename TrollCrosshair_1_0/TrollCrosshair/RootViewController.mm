@@ -1,6 +1,5 @@
 #import "RootViewController.h"
 #import <PhotosUI/PhotosUI.h>
-#import <Photos/Photos.h>
 #import <notify.h>
 #import <ImageIO/ImageIO.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
@@ -139,10 +138,13 @@
 }
 
 - (void)pickImage {
-    PHPickerConfiguration *configuration = [[PHPickerConfiguration alloc] initWithPhotoLibrary:PHPhotoLibrary.sharedPhotoLibrary];
-    configuration.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;
+    // PHPicker is a system-mediated picker. Do not touch PHPhotoLibrary or PHAsset:
+    // the picker already grants this app access to the selected representation.
+    PHPickerConfiguration *configuration = [[PHPickerConfiguration alloc] init];
     configuration.filter = PHPickerFilter.imagesFilter;
     configuration.selectionLimit = 1;
+    configuration.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;
+
     PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:configuration];
     picker.delegate = self;
     [self presentViewController:picker animated:YES completion:nil];
@@ -150,73 +152,90 @@
 
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
     [picker dismissViewControllerAnimated:YES completion:nil];
+
     NSItemProvider *provider = results.firstObject.itemProvider;
     if (!provider) {
         self.status.text = @"未选择图片";
         return;
     }
 
-    NSMutableArray<NSString *> *types = [provider.registeredTypeIdentifiers mutableCopy];
-    NSArray *priority = @[@"public.png", @"public.jpeg", @"public.heic", @"public.jpg", @"public.image"];
-    [types sortUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+    NSMutableArray<NSString *> *imageTypes = [NSMutableArray array];
+    for (NSString *identifier in provider.registeredTypeIdentifiers) {
+        UTType *type = [UTType typeWithIdentifier:identifier];
+        if (type && [type conformsToType:UTType.image]) {
+            [imageTypes addObject:identifier];
+        }
+    }
+
+    // Prefer common lossless/standard representations, then try every remaining
+    // image representation actually advertised by this provider.
+    NSArray<NSString *> *priority = @[@"public.png", @"public.jpeg", @"public.heic", @"public.image"];
+    [imageTypes sortUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
         NSUInteger ai = [priority indexOfObject:a];
         NSUInteger bi = [priority indexOfObject:b];
         if (ai == NSNotFound) ai = NSUIntegerMax;
         if (bi == NSNotFound) bi = NSUIntegerMax;
         return ai < bi ? NSOrderedAscending : (ai > bi ? NSOrderedDescending : NSOrderedSame);
     }];
-    TCLog(@"Picker representations: %@", types);
+
+    TCLog(@"Picker image representations: %@", imageTypes);
     self.status.text = @"正在读取图片…";
-    NSString *assetIdentifier = results.firstObject.assetIdentifier;
-    if (assetIdentifier.length) {
-        PHFetchResult<PHAsset *> *assets = [PHAsset fetchAssetsWithLocalIdentifiers:@[assetIdentifier] options:nil];
-        PHAsset *asset = assets.firstObject;
-        if (asset) {
-            PHImageRequestOptions *options = [PHImageRequestOptions new];
-            options.version = PHImageRequestOptionsVersionCurrent;
-            options.deliveryMode = PHImageRequestOptionsDeliveryModeHighQualityFormat;
-            options.resizeMode = PHImageRequestOptionsResizeModeFast;
-            options.networkAccessAllowed = YES;
-            __weak typeof(self) weakSelf = self;
-            [[PHImageManager defaultManager] requestImageDataAndOrientationForAsset:asset options:options resultHandler:^(NSData *imageData, NSString *dataUTI, CGImagePropertyOrientation orientation, NSDictionary *info) {
-                __strong typeof(weakSelf) self = weakSelf;
-                UIImage *image = imageData.length ? [UIImage imageWithData:imageData] : nil;
-                if (image) {
-                    [self processSelectedImage:image];
-                } else {
-                    NSError *requestError = info[PHImageErrorKey];
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                        self.status.text = [NSString stringWithFormat:@"照片库读取失败：%@", requestError.localizedDescription ?: @"系统未返回图片数据"];
-                    });
-                }
-            }];
-            return;
-        }
+    if (imageTypes.count == 0) {
+        self.status.text = @"系统没有提供可读取的图片格式";
+        TCLog(@"Picker provider advertised no image representations");
+        return;
     }
-    [self loadImageFromProvider:provider types:types index:0];
+    [self loadImageFromProvider:provider types:imageTypes index:0];
 }
 
 - (void)loadImageFromProvider:(NSItemProvider *)provider types:(NSArray<NSString *> *)types index:(NSUInteger)index {
-    // Always ask Photos for UIImage. Do not fall back to public.png/public.jpeg:
-    // providers may advertise those UTIs without vending that representation.
-    self.status.text = @"正在读取图片…";
+    if (index >= types.count) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.status.text = @"图片读取失败：系统提供的图片文件无法解码，请尝试重新选择";
+        });
+        TCLog(@"All advertised image representations failed");
+        return;
+    }
+
+    NSString *typeIdentifier = types[index];
+    TCLog(@"Requesting picker file representation: %@", typeIdentifier);
     __weak typeof(self) weakSelf = self;
-    [provider loadObjectOfClass:UIImage.class completionHandler:^(id<NSItemProviderReading> object, NSError *error) {
+    [provider loadFileRepresentationForTypeIdentifier:typeIdentifier completionHandler:^(NSURL *fileURL, NSError *error) {
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) return;
-        UIImage *image = [object isKindOfClass:UIImage.class] ? (UIImage *)object : nil;
-        if (!image) {
-            NSString *detail = error.localizedDescription.length ? error.localizedDescription : @"系统没有返回可读取的图片";
+
+        UIImage *image = nil;
+        if (fileURL) {
+            // The URL is temporary and is deleted as soon as this completion
+            // handler returns. Decode it here, before leaving the callback.
+            NSDictionary *options = @{
+                (__bridge NSString *)kCGImageSourceCreateThumbnailFromImageAlways: @YES,
+                (__bridge NSString *)kCGImageSourceCreateThumbnailWithTransform: @YES,
+                (__bridge NSString *)kCGImageSourceThumbnailMaxPixelSize: @2048
+            };
+            CGImageSourceRef source = CGImageSourceCreateWithURL((__bridge CFURLRef)fileURL, NULL);
+            if (source) {
+                CGImageRef thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, (__bridge CFDictionaryRef)options);
+                if (thumbnail) {
+                    image = [UIImage imageWithCGImage:thumbnail];
+                    CGImageRelease(thumbnail);
+                }
+                CFRelease(source);
+            }
+        }
+
+        if (image) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                self.status.text = [NSString stringWithFormat:@"图片读取失败：%@", detail];
+                TCLog(@"Picker image decoded successfully from %@", typeIdentifier);
+                [self processSelectedImage:image];
             });
             return;
         }
 
-        [self processSelectedImage:image];
+        TCLog(@"Picker representation failed type=%@ error=%@", typeIdentifier, error);
+        [self loadImageFromProvider:provider types:types index:index + 1];
     }];
 }
-
 
 - (void)processSelectedImage:(UIImage *)image {
     if (!image) return;
