@@ -13,4 +13,15 @@
 <key>UILaunchScreen</key><dict/>
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 <key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.trollcrosshair.app</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>trollcrosshair</string>
+            </array>
+        </dict>
+    </array>
 </dict></plist>
