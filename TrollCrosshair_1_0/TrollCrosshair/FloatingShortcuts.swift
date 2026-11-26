@@ -45,7 +45,7 @@ struct FloatingAppShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "悬浮开关",
             systemImageName: "rectangle.on.rectangle"
-        )
+        ),
         AppShortcut(
             intent: EnableFloatingIntent(),
             phrases: [
