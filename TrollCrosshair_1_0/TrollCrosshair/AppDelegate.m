@@ -20,7 +20,13 @@
     NSString *command = url.host.lowercaseString;
     if (command.length == 0) command = url.path.lowercaseString;
     FloatingController *floating = FloatingController.shared;
-    BOOL hasImage = [NSUserDefaults.standardUserDefaults dataForKey:@"fi.overlayImageData"].length > 0;
+    [FISettings.shared reload];
+    CFPropertyListRef imageValue = CFPreferencesCopyAppValue(CFSTR("fi.overlayImageData"), CFSTR("com.trollcrosshair.app"));
+    NSData *imageData = imageValue ? CFBridgingRelease(imageValue) : nil;
+    if (![imageData isKindOfClass:NSData.class] || imageData.length == 0) {
+        imageData = [NSUserDefaults.standardUserDefaults dataForKey:@"fi.overlayImageData"];
+    }
+    BOOL hasImage = imageData.length > 0;
     if ([command isEqualToString:@"show"] || [command isEqualToString:@"on"]) {
         if (hasImage) [floating setEnabled:YES];
     } else if ([command isEqualToString:@"hide"] || [command isEqualToString:@"off"]) {
