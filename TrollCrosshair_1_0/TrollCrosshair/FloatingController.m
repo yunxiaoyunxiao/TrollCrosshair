@@ -90,8 +90,11 @@ static NSURL *TCHUDPIDURL(void) {
 }
 - (void)reloadOverlay {
     [FISettings.shared reload];
-    NSData *imageData = [NSUserDefaults.standardUserDefaults dataForKey:@"fi.overlayImageData"];
+    CFPropertyListRef copiedValue = CFPreferencesCopyAppValue(CFSTR("fi.overlayImageData"), CFSTR("com.trollcrosshair.app"));
+    NSData *imageData = copiedValue ? CFBridgingRelease(copiedValue) : nil;
+    if (![imageData isKindOfClass:NSData.class] || imageData.length == 0) imageData = [NSUserDefaults.standardUserDefaults dataForKey:@"fi.overlayImageData"];
     UIImage *image = imageData.length ? [UIImage imageWithData:imageData] : nil;
+    TCLog(@"HUD image read: dataBytes=%lu decoded=%@", (unsigned long)imageData.length, image ? NSStringFromCGSize(image.size) : @"NO");
     self.imageView.image = image;
     if (!image) {
         self.imageView.hidden = YES;
