@@ -13,6 +13,26 @@
     dispatch_once(&once, ^{ c = [FloatingController new]; });
     return c;
 }
+- (void)attachOverlayWindow:(UIWindow *)window {
+    if (!window) return;
+    self.overlayWindow = window;
+    self.overlayWindow.backgroundColor = UIColor.clearColor;
+    if (!self.overlayWindow.rootViewController) self.overlayWindow.rootViewController = [UIViewController new];
+    self.overlayWindow.rootViewController.view.backgroundColor = UIColor.clearColor;
+
+    [self.imageView removeFromSuperview];
+    self.imageView = [[UIImageView alloc] initWithFrame:CGRectZero];
+    self.imageView.contentMode = UIViewContentModeScaleToFill;
+    self.imageView.userInteractionEnabled = NO;
+    [self.overlayWindow.rootViewController.view addSubview:self.imageView];
+
+    if (self.imageURL) {
+        self.imageView.image = [UIImage imageWithContentsOfFile:self.imageURL.path];
+        [self refresh];
+    }
+    self.overlayWindow.hidden = !FISettings.shared.isEnabled;
+}
+
 - (void)showImageAtURL:(NSURL *)url {
     self.imageURL = url;
     UIImage *image = [UIImage imageWithContentsOfFile:url.path];
@@ -42,7 +62,9 @@
     if (!self.overlayWindow || !self.imageView) return;
     FISettings *s = FISettings.shared;
     CGRect bounds = self.overlayWindow.bounds;
-    CGFloat cx = CGRectGetMidX(bounds) + s.x, cy = CGRectGetMidY(bounds) + s.y;
+    UIEdgeInsets insets = self.overlayWindow.safeAreaInsets;
+    CGRect usableBounds = UIEdgeInsetsInsetRect(bounds, insets);
+    CGFloat cx = CGRectGetMidX(usableBounds) + s.x, cy = CGRectGetMidY(usableBounds) + s.y;
     self.imageView.bounds = CGRectMake(0, 0, MAX(1, s.width), MAX(1, s.height));
     self.imageView.center = CGPointMake(cx, cy);
     self.imageView.alpha = MIN(1, MAX(0, s.alpha));
