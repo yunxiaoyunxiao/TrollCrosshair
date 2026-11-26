@@ -21,7 +21,7 @@ struct EnableFloatingIntent: AppIntent {
     static var openAppWhenRun = true
 
     func perform() async throws -> some IntentResult {
-        UIApplication.shared.open(URL(string: "trollcrosshair://on")!)
+        await UIApplication.shared.open(URL(string: "trollcrosshair://on")!)
         return .result()
     }
 }
@@ -33,7 +33,7 @@ struct DisableFloatingIntent: AppIntent {
     static var openAppWhenRun = true
 
     func perform() async throws -> some IntentResult {
-        UIApplication.shared.open(URL(string: "trollcrosshair://off")!)
+        await UIApplication.shared.open(URL(string: "trollcrosshair://off")!)
         return .result()
     }
 }
