@@ -38,6 +38,7 @@
     } else {
         return NO;
     }
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"TrollCrosshairStateChanged" object:nil];
     return YES;
 }
 @end
