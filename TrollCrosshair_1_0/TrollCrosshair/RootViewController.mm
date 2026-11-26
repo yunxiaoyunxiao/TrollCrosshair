@@ -96,9 +96,10 @@
     self.status.text = @"正在读取所选图片…";
     TCLog(@"Image picker started; provider types=%@", provider.registeredTypeIdentifiers);
     NSString *imageType = nil;
+    UTType *genericImageType = [UTType typeWithIdentifier:@"public.image"];
     for (NSString *identifier in provider.registeredTypeIdentifiers) {
         UTType *type = [UTType typeWithIdentifier:identifier];
-        if (type && [type conformsToType:UTType.image]) {
+        if (type && genericImageType && [type conformsToType:genericImageType]) {
             imageType = identifier;
             break;
         }
