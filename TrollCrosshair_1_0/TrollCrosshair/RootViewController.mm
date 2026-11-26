@@ -203,7 +203,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
                 return;
             }
 
-            NSString *supportPath = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents"];
+            NSString *supportPath = [NSHomeDirectory() stringByAppendingPathComponent:@"tmp"];
             NSError *writeError = nil;
             BOOL directoryReady = [[NSFileManager defaultManager] createDirectoryAtPath:supportPath
                                                               withIntermediateDirectories:YES
@@ -221,7 +221,8 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
             }
 
             NSURL *savedURL = [NSURL fileURLWithPath:[supportPath stringByAppendingPathComponent:@"TrollCrosshair.png"]];
-            if (![pngData writeToURL:savedURL options:NSDataWritingAtomic error:&writeError]) {
+            [[NSFileManager defaultManager] removeItemAtURL:savedURL error:nil];
+            if (![pngData writeToFile:savedURL.path options:0 error:&writeError]) {
                 NSString *message = [NSString stringWithFormat:@"图片写入失败：%@", writeError.localizedDescription ?: @"未知错误"];
                 dispatch_async(dispatch_get_main_queue(), ^{
                     weakSelf.status.text = message;
@@ -249,7 +250,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
 }
 
 - (void)loadSavedOrDefaultImage {
-    NSString *supportPath = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents"];
+    NSString *supportPath = [NSHomeDirectory() stringByAppendingPathComponent:@"tmp"];
     [[NSFileManager defaultManager] createDirectoryAtPath:supportPath withIntermediateDirectories:YES attributes:nil error:nil];
     NSURL *savedURL = [NSURL fileURLWithPath:[supportPath stringByAppendingPathComponent:@"TrollCrosshair.png"]];
     UIImage *image = [UIImage imageWithContentsOfFile:savedURL.path];
@@ -260,7 +261,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         NSData *pngData = encoded ? [[NSData alloc] initWithBase64EncodedString:[encoded stringByReplacingOccurrencesOfString:@"\n" withString:@""] options:NSDataBase64DecodingIgnoreUnknownCharacters] : nil;
         image = pngData.length ? [UIImage imageWithData:pngData] : nil;
         if (image) {
-            NSString *supportPath = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents"];
+            NSString *supportPath = [NSHomeDirectory() stringByAppendingPathComponent:@"tmp"];
             [[NSFileManager defaultManager] createDirectoryAtPath:supportPath withIntermediateDirectories:YES attributes:nil error:nil];
             NSURL *defaultURL = [NSURL fileURLWithPath:[supportPath stringByAppendingPathComponent:@"TrollCrosshair.png"]];
             [pngData writeToURL:defaultURL options:NSDataWritingAtomic error:nil];
