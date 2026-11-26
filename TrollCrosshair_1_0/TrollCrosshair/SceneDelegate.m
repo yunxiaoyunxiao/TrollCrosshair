@@ -1,4 +1,5 @@
 #import "SceneDelegate.h"
+#import "AppDelegate.h"
 #import "RootViewController.h"
 #import "FloatingController.h"
 #import "FISettings.h"
@@ -31,6 +32,13 @@ static NSString * const TCFloatingSceneIdentifier = @"com.trollcrosshair.app.ove
     mainWindow.rootViewController = [RootViewController new];
     self.window = mainWindow;
     [mainWindow makeKeyAndVisible];
+}
+
+- (void)scene:(UIScene *)scene openURLContexts:(NSSet<UIOpenURLContext *> *)URLContexts {
+    AppDelegate *appDelegate = (AppDelegate *)UIApplication.sharedApplication.delegate;
+    for (UIOpenURLContext *context in URLContexts) {
+        [appDelegate application:UIApplication.sharedApplication openURL:context.URL options:context.options];
+    }
 }
 
 - (void)windowScene:(UIWindowScene *)windowScene didUpdateCoordinateSpace:(id< UICoordinateSpace >)previousCoordinateSpace interfaceOrientation:(UIInterfaceOrientation)previousInterfaceOrientation traitCollection:(UITraitCollection *)previousTraitCollection {
