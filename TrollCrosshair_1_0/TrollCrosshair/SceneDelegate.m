@@ -12,6 +12,7 @@ static NSString * const TCFloatingSceneIdentifier = @"com.trollcrosshair.app.ove
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)connectionOptions {
     if (![scene isKindOfClass:UIWindowScene.class]) return;
     UIWindowScene *windowScene = (UIWindowScene *)scene;
+    NSLog(@"[TrollCrosshair] Scene connecting: persistentIdentifier=%@ role=%@", session.persistentIdentifier, session.role);
 
     if ([session.persistentIdentifier isEqualToString:TCFloatingSceneIdentifier]) {
         Window *overlay = [[Window alloc] initWithWindowScene:windowScene];
@@ -32,6 +33,9 @@ static NSString * const TCFloatingSceneIdentifier = @"com.trollcrosshair.app.ove
     mainWindow.rootViewController = [RootViewController new];
     self.window = mainWindow;
     [mainWindow makeKeyAndVisible];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [(AppDelegate *)UIApplication.sharedApplication.delegate createFloatingScene];
+    });
 }
 
 - (void)scene:(UIScene *)scene openURLContexts:(NSSet<UIOpenURLContext *> *)URLContexts {
