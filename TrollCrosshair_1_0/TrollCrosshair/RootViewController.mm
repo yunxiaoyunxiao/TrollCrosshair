@@ -9,6 +9,7 @@
 #import <string.h>
 #import <CoreFoundation/CoreFoundation.h>
 #import <sys/stat.h>
+#import <sys/mount.h>
 #import <dlfcn.h>
 
 @interface RootViewController () <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
@@ -21,6 +22,65 @@
 @property(nonatomic,strong) UIStackView *contentStack;
 @property(nonatomic,assign) int readyNotifyToken;
 @end
+
+
+static NSString *TCProbeDirectory(NSString *directory) {
+    if (!directory.length) return @"目录路径为空";
+    struct stat st = {0};
+    int statResult = stat(directory.fileSystemRepresentation, &st);
+    int statError = statResult == 0 ? 0 : errno;
+    struct statfs fs = {0};
+    int statfsResult = statfs(directory.fileSystemRepresentation, &fs);
+    int statfsError = statfsResult == 0 ? 0 : errno;
+    int accessResult = access(directory.fileSystemRepresentation, W_OK | X_OK);
+    int accessError = accessResult == 0 ? 0 : errno;
+    int dirFD = open(directory.fileSystemRepresentation, O_RDONLY | O_DIRECTORY);
+    int dirOpenError = dirFD >= 0 ? 0 : errno;
+    if (dirFD >= 0) close(dirFD);
+
+    NSString *probeName = [NSString stringWithFormat:@".tc-write-probe-%d-%u", getpid(), arc4random()];
+    NSString *probePath = [directory stringByAppendingPathComponent:probeName];
+    int fd = open(probePath.fileSystemRepresentation, O_WRONLY | O_CREAT | O_EXCL, 0600);
+    int createError = fd >= 0 ? 0 : errno;
+    int writeError = 0, syncError = 0, closeError = 0, readOpenError = 0, readError = 0, unlinkError = 0;
+    BOOL wrote = NO, readBack = NO;
+    if (fd >= 0) {
+        const char payload[] = "TCOK";
+        ssize_t n = write(fd, payload, sizeof(payload) - 1);
+        if (n == (ssize_t)(sizeof(payload) - 1)) wrote = YES;
+        else writeError = n < 0 ? errno : EIO;
+        if (fsync(fd) != 0) syncError = errno;
+        if (close(fd) != 0) closeError = errno;
+        int readFD = open(probePath.fileSystemRepresentation, O_RDONLY);
+        if (readFD < 0) readOpenError = errno;
+        else {
+            char buffer[8] = {0};
+            ssize_t nread = read(readFD, buffer, sizeof(buffer));
+            if (nread == 4 && memcmp(buffer, "TCOK", 4) == 0) readBack = YES;
+            else readError = nread < 0 ? errno : EIO;
+            close(readFD);
+        }
+        if (unlink(probePath.fileSystemRepresentation) != 0) unlinkError = errno;
+    }
+    NSString *statText = statResult == 0
+        ? [NSString stringWithFormat:@"uid=%d gid=%d mode=%o", st.st_uid, st.st_gid, st.st_mode]
+        : [NSString stringWithFormat:@"errno=%d(%s)", statError, strerror(statError)];
+    NSString *fsText = statfsResult == 0
+        ? [NSString stringWithFormat:@"flags=0x%lx readOnly=%@", (unsigned long)fs.f_flags, (fs.f_flags & MNT_RDONLY) ? @"YES" : @"NO"]
+        : [NSString stringWithFormat:@"errno=%d(%s)", statfsError, strerror(statfsError)];
+    return [NSString stringWithFormat:
+        @"目录: %@\nstat: %@\nstatfs: %@\naccess(W_OK|X_OK): %@\nopen(directory): %@\nopen(create): %@\nwrite: %@\nfsync: %@\nclose: %@\nopen(read): %@\nread/verify: %@\nunlink: %@",
+        directory, statText, fsText,
+        accessResult == 0 ? @"OK" : [NSString stringWithFormat:@"errno=%d(%s)", accessError, strerror(accessError)],
+        dirOpenError == 0 ? @"OK" : [NSString stringWithFormat:@"errno=%d(%s)", dirOpenError, strerror(dirOpenError)],
+        fd >= 0 ? @"OK" : [NSString stringWithFormat:@"errno=%d(%s)", createError, strerror(createError)],
+        wrote ? @"OK" : [NSString stringWithFormat:@"errno=%d(%s)", writeError, strerror(writeError)],
+        (fd >= 0 && syncError == 0) ? @"OK" : [NSString stringWithFormat:@"errno=%d(%s)", syncError, strerror(syncError)],
+        (fd >= 0 && closeError == 0) ? @"OK" : [NSString stringWithFormat:@"errno=%d(%s)", closeError, strerror(closeError)],
+        (fd >= 0 && readOpenError == 0) ? @"OK" : [NSString stringWithFormat:@"errno=%d(%s)", readOpenError, strerror(readOpenError)],
+        readBack ? @"OK" : [NSString stringWithFormat:@"errno=%d(%s)", readError, strerror(readError)],
+        (fd >= 0 && unlinkError == 0) ? @"OK" : [NSString stringWithFormat:@"errno=%d(%s)", unlinkError, strerror(unlinkError)]];
+}
 
 @implementation RootViewController
 
@@ -197,8 +257,9 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
     int tempDataCheck = sandboxCheck ? sandboxCheck(0, "file-write-data", 1, temporary.fileSystemRepresentation) : -999;
     NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject ?: @"(nil)";
     NSString *caches = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject ?: @"(nil)";
+    NSString *directoryProbes = [@[TCProbeDirectory(temporary), TCProbeDirectory(documents), TCProbeDirectory(caches)] componentsJoinedByString:@"\n\n------------------------------\n\n"];
     NSString *diagnostics = [NSString stringWithFormat:
-        @"TrollCrosshair 图片保存失败\n%@\n\n运行环境诊断：\nUID: %d\nEUID: %d\nHOME: %@\nNSTemporaryDirectory: %@\nDocuments: %@\nCaches: %@\nHOME 可写: %@\n临时目录可写: %@\nHOME stat: %@\nHOME owner/mode: %d/%o\ntmp stat: %@\ntmp owner/mode: %d/%o\nsandbox_check file-write-create HOME: %d\nsandbox_check file-write-create tmp: %d\nsandbox_check file-write-data tmp: %d\n\n运行时 Entitlements:\n%@\n",
+        @"TrollCrosshair 图片保存失败\n%@\n\n运行环境诊断：\nUID: %d\nEUID: %d\nHOME: %@\nNSTemporaryDirectory: %@\nDocuments: %@\nCaches: %@\nHOME 可写: %@\n临时目录可写: %@\nHOME stat: %@\nHOME owner/mode: %d/%o\ntmp stat: %@\ntmp owner/mode: %d/%o\nsandbox_check file-write-create HOME: %d\nsandbox_check file-write-create tmp: %d\nsandbox_check file-write-data tmp: %d\n\n实际 POSIX 目录写入测试：\n%@\n\n运行时 Entitlements:\n%@\n",
         message ?: @"未知错误",
         getuid(), geteuid(), home, temporary, documents, caches,
         [[NSFileManager defaultManager] isWritableFileAtPath:home] ? @"YES" : @"NO",
@@ -207,7 +268,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         homeStatOK ? homeStat.st_uid : -1, homeStatOK ? homeStat.st_mode : 0,
         tempStatOK ? @"OK" : [NSString stringWithUTF8String:strerror(errno)],
         tempStatOK ? tempStat.st_uid : -1, tempStatOK ? tempStat.st_mode : 0,
-        homeCreateCheck, tempCreateCheck, tempDataCheck,
+        homeCreateCheck, tempCreateCheck, tempDataCheck, directoryProbes,
         [entitlementLines componentsJoinedByString:@"\n"]];
     UIPasteboard.generalPasteboard.string = diagnostics;
     self.status.text = @"保存失败，完整错误信息已复制到剪切板";
