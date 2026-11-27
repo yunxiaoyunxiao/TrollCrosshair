@@ -13,16 +13,24 @@ on:
 permissions:
   contents: read
 
+env:
+  APP_NAME: TrollCrosshair
+  BUILD_NUMBER: 5
+
 jobs:
   build:
     runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Select Xcode
+
+      - name: Select Xcode and install ldid
         run: |
           xcodebuild -version
           xcodebuild -showsdks
+          brew install ldid
+          ldid --version || true
+
       - name: Unpack and inspect source
         run: |
           mkdir -p source
@@ -30,12 +38,16 @@ jobs:
           PROJECT="source/TrollCrosshair-1.2/TrollCrosshair/TrollCrosshair.xcodeproj"
           APP_SOURCE="source/TrollCrosshair-1.2/TrollCrosshair/TrollCrosshair"
           test -d "$PROJECT"
+          test -f "$APP_SOURCE/TrollCrosshair.entitlements"
           cp FloatingShortcuts.swift "$APP_SOURCE/FloatingShortcuts.swift"
           grep -q 'sizeScale' "$APP_SOURCE/FISettings.h"
           grep -q 'TCHUDMain' "$APP_SOURCE/main.m"
-          ! grep -q 'addSlider:@\"宽度\"' "$APP_SOURCE/RootViewController.mm"
-          ! grep -q 'addSlider:@\"高度\"' "$APP_SOURCE/RootViewController.mm"
+          grep -q 'com.apple.private.security.no-sandbox' "$APP_SOURCE/TrollCrosshair.entitlements"
+          grep -q 'platform-application' "$APP_SOURCE/TrollCrosshair.entitlements"
+          ! grep -q 'addSlider:@"宽度"' "$APP_SOURCE/RootViewController.mm"
+          ! grep -q 'addSlider:@"高度"' "$APP_SOURCE/RootViewController.mm"
           xcodebuild -list -project "$PROJECT"
+
       - name: Build unsigned iOS app
         run: |
           set -o pipefail
@@ -53,33 +65,51 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             build 2>&1 | tee build.log
-      - name: Package unsigned IPA for TrollStore testing
+
+      - name: Embed and verify TrollStore entitlements
         run: |
+          set -euo pipefail
           APP="$PWD/DerivedData/Build/Products/Release-iphoneos/TrollCrosshair.app"
-          test -d "$APP"
+          ENTITLEMENTS="$PWD/source/TrollCrosshair-1.2/TrollCrosshair/TrollCrosshair/TrollCrosshair.entitlements"
           test -x "$APP/TrollCrosshair"
+          ldid -S"$ENTITLEMENTS" "$APP/TrollCrosshair"
+          ldid -e "$APP/TrollCrosshair" > embedded-entitlements.plist
+          plutil -lint embedded-entitlements.plist
+          /usr/libexec/PlistBuddy -c 'Print :com.apple.private.security.no-sandbox' embedded-entitlements.plist | grep -q true
+          /usr/libexec/PlistBuddy -c 'Print :com.apple.private.security.storage.AppDataContainers' embedded-entitlements.plist | grep -q true
+          /usr/libexec/PlistBuddy -c 'Print :platform-application' embedded-entitlements.plist | grep -q true
+          echo 'Verified embedded entitlements:'
+          cat embedded-entitlements.plist
+
+      - name: Package IPA for TrollStore testing
+        run: |
+          set -euo pipefail
+          APP="$PWD/DerivedData/Build/Products/Release-iphoneos/TrollCrosshair.app"
           mkdir -p package/Payload
           ditto "$APP" package/Payload/TrollCrosshair.app
           cd package
-          ditto -c -k --sequesterRsrc --keepParent Payload "$GITHUB_WORKSPACE/TrollCrosshair-1.2-build4-unsigned.ipa"
+          ditto -c -k --sequesterRsrc --keepParent Payload "$GITHUB_WORKSPACE/TrollCrosshair-1.2-build${BUILD_NUMBER}-TrollStore.ipa"
           cd "$GITHUB_WORKSPACE"
-          unzip -t TrollCrosshair-1.2-build4-unsigned.ipa
+          unzip -t "TrollCrosshair-1.2-build${BUILD_NUMBER}-TrollStore.ipa"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' package/Payload/TrollCrosshair.app/Info.plist
           /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' package/Payload/TrollCrosshair.app/Info.plist
           /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' package/Payload/TrollCrosshair.app/Info.plist
+          ldid -e package/Payload/TrollCrosshair.app/TrollCrosshair | grep -E 'no-sandbox|platform-application|AppDataContainers'
           xcrun --sdk iphoneos lipo -info package/Payload/TrollCrosshair.app/TrollCrosshair
-      - name: Upload test IPA
+
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: TrollCrosshair-1.2-build4-unsigned-IPA
-          path: TrollCrosshair-1.2-build4-unsigned.ipa
+          name: TrollCrosshair-1.2-build5-TrollStore-IPA
+          path: TrollCrosshair-1.2-build5-TrollStore.ipa
           if-no-files-found: error
           retention-days: 30
+
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: TrollCrosshair-1.2-build4-build-log
+          name: TrollCrosshair-1.2-build5-build-log
           path: build.log
           if-no-files-found: ignore
           retention-days: 7
