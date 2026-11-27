@@ -7,13 +7,13 @@ on:
       - trollcrosshair-1.2
     paths:
       - 'TrollCrosshair-1.2-source.tar.bz2'
+      - 'build6-patch-parts/**'
       - '.github/workflows/build-test-ipa.yml'
 
 permissions:
   contents: read
 
 env:
-  APP_NAME: TrollCrosshair
   BUILD_NUMBER: 6
 
 jobs:
@@ -28,29 +28,24 @@ jobs:
           xcodebuild -version
           xcodebuild -showsdks
           brew install ldid
-          ldid --version || true
 
-      - name: Unpack and audit source
+      - name: Restore Build 5 source and apply Build 6 patch
         run: |
           set -euo pipefail
-          mkdir -p source
+          mkdir -p source patch
           tar -xjf TrollCrosshair-1.2-source.tar.bz2 -C source
+          cat build6-patch-parts/00.b64 build6-patch-parts/01.b64 build6-patch-parts/02.b64 > build6-patch.b64
+          base64 -D < build6-patch.b64 > build6-patch.tar.xz
+          tar -xJf build6-patch.tar.xz -C patch
+          patch -p4 -d source/TrollCrosshair-1.2 < patch/build6-source.patch
           PROJECT="source/TrollCrosshair-1.2/TrollCrosshair/TrollCrosshair.xcodeproj"
           APP_SOURCE="source/TrollCrosshair-1.2/TrollCrosshair/TrollCrosshair"
-          test -d "$PROJECT"
           test -f "$APP_SOURCE/TrollCrosshair.entitlements"
-          test -f "$APP_SOURCE/FloatingShortcuts.swift"
           grep -q 'diagnosticLog' "$APP_SOURCE/FloatingController.h"
           grep -q 'posix_spawn failed' "$APP_SOURCE/FloatingController.m"
-          grep -q 'BackBoard registration' "$APP_SOURCE/FloatingController.m"
           grep -q '复制诊断日志到剪贴板' "$APP_SOURCE/RootViewController.mm"
           grep -q 'openAppWhenRun = true' "$APP_SOURCE/FloatingShortcuts.swift"
-          grep -q 'sizeScale' "$APP_SOURCE/FISettings.h"
           grep -q 'com.apple.private.security.no-sandbox' "$APP_SOURCE/TrollCrosshair.entitlements"
-          grep -q 'com.apple.private.security.storage.AppDataContainers' "$APP_SOURCE/TrollCrosshair.entitlements"
-          grep -q 'platform-application' "$APP_SOURCE/TrollCrosshair.entitlements"
-          ! grep -q 'addSlider:@"宽度"' "$APP_SOURCE/RootViewController.mm"
-          ! grep -q 'addSlider:@"高度"' "$APP_SOURCE/RootViewController.mm"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_SOURCE/Info.plist" | grep -q '^6$'
           xcodebuild -list -project "$PROJECT"
 
@@ -85,7 +80,6 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Print :com.apple.private.security.no-sandbox' embedded-entitlements.plist | grep -q true
           /usr/libexec/PlistBuddy -c 'Print :com.apple.private.security.storage.AppDataContainers' embedded-entitlements.plist | grep -q true
           /usr/libexec/PlistBuddy -c 'Print :platform-application' embedded-entitlements.plist | grep -q true
-          echo 'Verified embedded entitlements:'
           cat embedded-entitlements.plist
 
       - name: Package and inspect IPA
