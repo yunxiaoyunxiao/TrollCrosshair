@@ -1,4 +1,4 @@
-name: TrollCrosshair 1.2 iOS Build
+name: TrollCrosshair 1.2 Build 6
 
 on:
   workflow_dispatch:
@@ -7,7 +7,6 @@ on:
       - trollcrosshair-1.2
     paths:
       - 'TrollCrosshair-1.2-source.tar.bz2'
-      - 'FloatingShortcuts.swift'
       - '.github/workflows/build-test-ipa.yml'
 
 permissions:
@@ -15,7 +14,7 @@ permissions:
 
 env:
   APP_NAME: TrollCrosshair
-  BUILD_NUMBER: 5
+  BUILD_NUMBER: 6
 
 jobs:
   build:
@@ -31,24 +30,31 @@ jobs:
           brew install ldid
           ldid --version || true
 
-      - name: Unpack and inspect source
+      - name: Unpack and audit source
         run: |
+          set -euo pipefail
           mkdir -p source
           tar -xjf TrollCrosshair-1.2-source.tar.bz2 -C source
           PROJECT="source/TrollCrosshair-1.2/TrollCrosshair/TrollCrosshair.xcodeproj"
           APP_SOURCE="source/TrollCrosshair-1.2/TrollCrosshair/TrollCrosshair"
           test -d "$PROJECT"
           test -f "$APP_SOURCE/TrollCrosshair.entitlements"
-          cp FloatingShortcuts.swift "$APP_SOURCE/FloatingShortcuts.swift"
+          test -f "$APP_SOURCE/FloatingShortcuts.swift"
+          grep -q 'diagnosticLog' "$APP_SOURCE/FloatingController.h"
+          grep -q 'posix_spawn failed' "$APP_SOURCE/FloatingController.m"
+          grep -q 'BackBoard registration' "$APP_SOURCE/FloatingController.m"
+          grep -q '复制诊断日志到剪贴板' "$APP_SOURCE/RootViewController.mm"
+          grep -q 'openAppWhenRun = true' "$APP_SOURCE/FloatingShortcuts.swift"
           grep -q 'sizeScale' "$APP_SOURCE/FISettings.h"
-          grep -q 'TCHUDMain' "$APP_SOURCE/main.m"
           grep -q 'com.apple.private.security.no-sandbox' "$APP_SOURCE/TrollCrosshair.entitlements"
+          grep -q 'com.apple.private.security.storage.AppDataContainers' "$APP_SOURCE/TrollCrosshair.entitlements"
           grep -q 'platform-application' "$APP_SOURCE/TrollCrosshair.entitlements"
           ! grep -q 'addSlider:@"宽度"' "$APP_SOURCE/RootViewController.mm"
           ! grep -q 'addSlider:@"高度"' "$APP_SOURCE/RootViewController.mm"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_SOURCE/Info.plist" | grep -q '^6$'
           xcodebuild -list -project "$PROJECT"
 
-      - name: Build unsigned iOS app
+      - name: Build iOS app
         run: |
           set -o pipefail
           PROJECT="source/TrollCrosshair-1.2/TrollCrosshair/TrollCrosshair.xcodeproj"
@@ -59,6 +65,7 @@ jobs:
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$PWD/DerivedData" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             CLANG_ENABLE_OBJC_ARC=YES \
             OTHER_LDFLAGS="-framework PhotosUI -framework UniformTypeIdentifiers -framework ImageIO" \
             CODE_SIGNING_ALLOWED=NO \
@@ -81,7 +88,7 @@ jobs:
           echo 'Verified embedded entitlements:'
           cat embedded-entitlements.plist
 
-      - name: Package IPA for TrollStore testing
+      - name: Package and inspect IPA
         run: |
           set -euo pipefail
           APP="$PWD/DerivedData/Build/Products/Release-iphoneos/TrollCrosshair.app"
@@ -91,17 +98,19 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent Payload "$GITHUB_WORKSPACE/TrollCrosshair-1.2-build${BUILD_NUMBER}-TrollStore.ipa"
           cd "$GITHUB_WORKSPACE"
           unzip -t "TrollCrosshair-1.2-build${BUILD_NUMBER}-TrollStore.ipa"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' package/Payload/TrollCrosshair.app/Info.plist
-          /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' package/Payload/TrollCrosshair.app/Info.plist
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' package/Payload/TrollCrosshair.app/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' package/Payload/TrollCrosshair.app/Info.plist | grep -q 'com.floatimage.app'
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' package/Payload/TrollCrosshair.app/Info.plist | grep -q '^6$'
+          /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' package/Payload/TrollCrosshair.app/Info.plist | grep -q '17.0'
           ldid -e package/Payload/TrollCrosshair.app/TrollCrosshair | grep -E 'no-sandbox|platform-application|AppDataContainers'
           xcrun --sdk iphoneos lipo -info package/Payload/TrollCrosshair.app/TrollCrosshair
+          strings package/Payload/TrollCrosshair.app/TrollCrosshair | grep -q 'HUD startup handshake succeeded'
+          strings package/Payload/TrollCrosshair.app/TrollCrosshair | grep -q 'TrollCrosshair-diagnostics.log'
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: TrollCrosshair-1.2-build5-TrollStore-IPA
-          path: TrollCrosshair-1.2-build5-TrollStore.ipa
+          name: TrollCrosshair-1.2-build6-TrollStore-IPA
+          path: TrollCrosshair-1.2-build6-TrollStore.ipa
           if-no-files-found: error
           retention-days: 30
 
@@ -109,7 +118,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: TrollCrosshair-1.2-build5-build-log
+          name: TrollCrosshair-1.2-build6-build-log
           path: build.log
           if-no-files-found: ignore
           retention-days: 7
