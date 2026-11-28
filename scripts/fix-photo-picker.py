@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from pathlib import Path
 import sys
+import re
 
 if len(sys.argv) != 2:
     raise SystemExit("usage: fix-photo-picker.py path/to/RootViewController.mm")
@@ -36,6 +37,11 @@ for index in range(open_brace, len(source)):
 
 if method_end < 0:
     raise SystemExit("Could not find end of PHPicker delegate method")
+
+preview_match = re.search(r'@property\\s*\\([^)]*\\)\\s*UIImageView\\s*\\*\\s*(\\w+)', source)
+if not preview_match:
+    raise SystemExit("UIImageView preview property not found in patched source")
+preview_property = preview_match.group(1)
 
 replacement = r'''- (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
     [picker dismissViewControllerAnimated:YES completion:nil];
@@ -89,12 +95,12 @@ replacement = r'''- (void)picker:(PHPickerViewController *)picker didFinishPicki
 
         dispatch_async(dispatch_get_main_queue(), ^{
             self.imageURL = url;
-            self.preview.image = image;
+            self.__PREVIEW_PROPERTY__.image = image;
             self.status.text = @"已选择图片并保存到本地";
             [[FloatingController shared] showImageAtURL:url];
         });
     }];
 }'''
-source = source[:method_start] + replacement + source[method_end:]
+replacement = replacement.replace('__PREVIEW_PROPERTY__', preview_property)\nsource = source[:method_start] + replacement + source[method_end:]
 path.write_text(source)
 print("Photo picker delegate replaced with data-representation implementation")
