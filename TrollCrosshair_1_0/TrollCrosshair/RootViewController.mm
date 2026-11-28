@@ -1,4 +1,5 @@
 #import "RootViewController.h"
+#import <PhotosUI/PhotosUI.h>
 #import <notify.h>
 #import "TCLogger.h"
 #import "FISettings.h"
@@ -12,7 +13,7 @@
 #import <sys/mount.h>
 #import <dlfcn.h>
 
-@interface RootViewController () <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
+@interface RootViewController () <PHPickerViewControllerDelegate>
 @property(nonatomic,strong) UIView *previewContainer;
 @property(nonatomic,strong) UIImageView *preview;
 @property(nonatomic,strong) UILabel *status;
@@ -241,34 +242,59 @@ static NSString *TCProbeDirectory(NSString *directory) {
 }
 
 - (void)pickImage {
-    // Use UIKit's long-established photo-library controller here. The previous
-    // PHPicker + NSItemProvider file-representation chain was the only new,
-    // asynchronous path introduced immediately before the reported crash.
-    UIImagePickerController *picker = [UIImagePickerController new];
-    picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
-    picker.mediaTypes = @[@"public.image"];
-    picker.allowsEditing = NO;
+    // PHPicker runs in the system photo-picker process and does not require
+    // broad Photos-library authorization. Use loadObjectOfClass instead of
+    // loadFileRepresentation: the latter can hand back a temporary URL whose
+    // lifetime ends before asynchronous copying finishes.
+    PHPickerConfiguration *configuration = [[PHPickerConfiguration alloc] init];
+    configuration.filter = PHPickerFilter.imagesFilter;
+    configuration.selectionLimit = 1;
+    configuration.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;
+
+    PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:configuration];
     picker.delegate = self;
+    picker.modalPresentationStyle = UIModalPresentationFullScreen;
+    self.status.text = @"正在打开照片选择器…";
     [self presentViewController:picker animated:YES completion:nil];
 }
 
-- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
-    [picker dismissViewControllerAnimated:YES completion:nil];
-    self.status.text = self.imageURL ? @"图片已就绪" : @"请选择图片";
-}
+- (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
+    PHPickerResult *result = results.firstObject;
+    if (!result) {
+        [picker dismissViewControllerAnimated:YES completion:^{
+            self.status.text = self.preview.image ? @"图片已就绪" : @"请选择图片";
+        }];
+        return;
+    }
 
-- (void)imagePickerController:(UIImagePickerController *)picker
-didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
-    UIImage *image = info[UIImagePickerControllerOriginalImage];
-    NSURL *originalURL = info[UIImagePickerControllerImageURL];
-    [picker dismissViewControllerAnimated:YES completion:^{
-        if (!image) {
-            self.status.text = @"没有取得图片，请重新选择";
-            TCLog(@"UIImagePicker returned no original UIImage; info keys=%@", info.allKeys);
-            return;
-        }
-        TCLog(@"UIImagePicker selected image size=%@ url=%@", NSStringFromCGSize(image.size), originalURL);
-        [self processSelectedImage:image];
+    NSItemProvider *provider = result.itemProvider;
+    if (![provider canLoadObjectOfClass:UIImage.class]) {
+        [picker dismissViewControllerAnimated:YES completion:^{
+            self.status.text = @"该图片格式暂不支持，请换一张图片";
+        }];
+        TCLog(@"PHPicker item provider cannot load UIImage; registered=%@", provider.registeredTypeIdentifiers);
+        return;
+    }
+
+    self.status.text = @"正在读取所选图片…";
+    __weak typeof(self) weakSelf = self;
+    [provider loadObjectOfClass:UIImage.class completionHandler:^(id<NSItemProviderReading> object, NSError *error) {
+        UIImage *image = [object isKindOfClass:UIImage.class] ? (UIImage *)object : nil;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            RootViewController *strongSelf = weakSelf;
+            if (!strongSelf) return;
+            [picker dismissViewControllerAnimated:YES completion:^{
+                if (error || !image) {
+                    strongSelf.status.text = error.localizedDescription.length
+                        ? [NSString stringWithFormat:@"读取图片失败：%@", error.localizedDescription]
+                        : @"读取图片失败，请重新选择";
+                    TCLog(@"PHPicker image load failed: %@; registered=%@", error, provider.registeredTypeIdentifiers);
+                    return;
+                }
+                TCLog(@"PHPicker selected image size=%@ types=%@", NSStringFromCGSize(image.size), provider.registeredTypeIdentifiers);
+                [strongSelf processSelectedImage:image];
+            }];
+        });
     }];
 }
 
