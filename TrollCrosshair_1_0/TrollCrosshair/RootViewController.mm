@@ -1,5 +1,6 @@
 #import "RootViewController.h"
 #import <PhotosUI/PhotosUI.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import "FISettings.h"
 #import "FloatingController.h"
 
@@ -75,14 +76,57 @@
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
     [picker dismissViewControllerAnimated:YES completion:nil];
     NSItemProvider *provider = results.firstObject.itemProvider;
-    if (![provider canLoadObjectOfClass:UIImage.class]) return;
-    [provider loadObjectOfClass:UIImage.class completionHandler:^(UIImage *image, NSError *error) {
-        if (!image || error) return;
-        NSData *data = UIImagePNGRepresentation(image); NSURL *dir = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
-        [NSFileManager.defaultManager createDirectoryAtURL:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    if (!provider) {
+        self.status.text = @"未能从照片选择器获取图片";
+        return;
+    }
+
+    NSString *imageType = UTTypeImage.identifier;
+    if (![provider hasItemConformingToTypeIdentifier:imageType]) {
+        self.status.text = @"所选项目不是受支持的图片";
+        return;
+    }
+
+    [provider loadDataRepresentationForTypeIdentifier:imageType completionHandler:^(NSData *data, NSError *error) {
+        UIImage *image = data ? [UIImage imageWithData:data] : nil;
+        if (!image) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.status.text = error.localizedDescription ?: @"读取所选图片失败";
+            });
+            return;
+        }
+
+        NSData *pngData = UIImagePNGRepresentation(image);
+        if (!pngData) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.status.text = @"无法将图片转换为 PNG";
+            });
+            return;
+        }
+
+        NSURL *dir = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
+        NSError *directoryError = nil;
+        [NSFileManager.defaultManager createDirectoryAtURL:dir withIntermediateDirectories:YES attributes:nil error:&directoryError];
+        if (directoryError) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.status.text = directoryError.localizedDescription;
+            });
+            return;
+        }
+
         NSURL *url = [dir URLByAppendingPathComponent:@"FloatImage.png"];
-        if ([data writeToURL:url atomically:YES]) dispatch_async(dispatch_get_main_queue(), ^{
-            self.imageURL = url; self.preview.image = image; self.status.text = @"已选择图片并保存到本地";
+        NSError *writeError = nil;
+        if (![pngData writeToURL:url options:NSDataWritingAtomic error:&writeError]) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.status.text = writeError.localizedDescription ?: @"保存图片失败";
+            });
+            return;
+        }
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.imageURL = url;
+            self.preview.image = image;
+            self.status.text = @"已选择图片并保存到本地";
             [[FloatingController shared] showImageAtURL:url];
         });
     }];
