@@ -1,5 +1,6 @@
 #import "RootViewController.h"
 #import <PhotosUI/PhotosUI.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <notify.h>
 #import "TCLogger.h"
 #import "FISettings.h"
@@ -259,39 +260,60 @@ static NSString *TCProbeDirectory(NSString *directory) {
 }
 
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
+    TCLog(@"PHPicker delegate returned results.count=%lu", (unsigned long)results.count);
     PHPickerResult *result = results.firstObject;
     if (!result) {
         [picker dismissViewControllerAnimated:YES completion:^{
-            self.status.text = self.preview.image ? @"图片已就绪" : @"请选择图片";
+            self.status.text = self.preview.image ? @"未选择新图片（保留原图片）" : @"未选择图片，请重新选择";
+            TCLog(@"PHPicker finished without a selected result");
         }];
         return;
     }
 
     NSItemProvider *provider = result.itemProvider;
-    if (![provider canLoadObjectOfClass:UIImage.class]) {
-        [picker dismissViewControllerAnimated:YES completion:^{
-            self.status.text = @"该图片格式暂不支持，请换一张图片";
-        }];
-        TCLog(@"PHPicker item provider cannot load UIImage; registered=%@", provider.registeredTypeIdentifiers);
-        return;
-    }
-
+    NSArray<NSString *> *types = provider.registeredTypeIdentifiers ?: @[];
     self.status.text = @"正在读取所选图片…";
+    TCLog(@"PHPicker selected result; registered type identifiers=%@", types);
+
+    // Prefer the provider's actual image data. Some providers advertise image
+    // representations but do not vend UIImage through loadObjectOfClass:.
+    // Keep UIImage loading as a fallback for providers that only vend objects.
     __weak typeof(self) weakSelf = self;
-    [provider loadObjectOfClass:UIImage.class completionHandler:^(id<NSItemProviderReading> object, NSError *error) {
-        UIImage *image = [object isKindOfClass:UIImage.class] ? (UIImage *)object : nil;
+    [provider loadDataRepresentationForTypeIdentifier:UTTypeImage.identifier
+                                    completionHandler:^(NSData *data, NSError *dataError) {
+        UIImage *image = data.length ? [UIImage imageWithData:data] : nil;
+        if (!image) {
+            [provider loadObjectOfClass:UIImage.class
+                      completionHandler:^(id<NSItemProviderReading> object, NSError *objectError) {
+                UIImage *fallbackImage = [object isKindOfClass:UIImage.class] ? (UIImage *)object : nil;
+                NSError *finalError = objectError ?: dataError;
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    RootViewController *strongSelf = weakSelf;
+                    if (!strongSelf) return;
+                    [picker dismissViewControllerAnimated:YES completion:^{
+                        if (!fallbackImage) {
+                            strongSelf.status.text = finalError.localizedDescription.length
+                                ? [NSString stringWithFormat:@"图片读取失败：%@", finalError.localizedDescription]
+                                : @"图片读取失败，请重新选择";
+                            TCLog(@"PHPicker both data and UIImage loading failed; dataError=%@ objectError=%@ types=%@",
+                                  dataError, objectError, types);
+                            return;
+                        }
+                        TCLog(@"PHPicker UIImage fallback succeeded size=%@ types=%@",
+                              NSStringFromCGSize(fallbackImage.size), types);
+                        [strongSelf processSelectedImage:fallbackImage];
+                    }];
+                });
+            }];
+            return;
+        }
+
         dispatch_async(dispatch_get_main_queue(), ^{
             RootViewController *strongSelf = weakSelf;
             if (!strongSelf) return;
             [picker dismissViewControllerAnimated:YES completion:^{
-                if (error || !image) {
-                    strongSelf.status.text = error.localizedDescription.length
-                        ? [NSString stringWithFormat:@"读取图片失败：%@", error.localizedDescription]
-                        : @"读取图片失败，请重新选择";
-                    TCLog(@"PHPicker image load failed: %@; registered=%@", error, provider.registeredTypeIdentifiers);
-                    return;
-                }
-                TCLog(@"PHPicker selected image size=%@ types=%@", NSStringFromCGSize(image.size), provider.registeredTypeIdentifiers);
+                TCLog(@"PHPicker image data load succeeded bytes=%lu size=%@ types=%@",
+                      (unsigned long)data.length, NSStringFromCGSize(image.size), types);
                 [strongSelf processSelectedImage:image];
             }];
         });
