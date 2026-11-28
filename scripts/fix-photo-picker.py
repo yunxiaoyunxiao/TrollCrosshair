@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from pathlib import Path
-import sys
 import re
+import sys
 
 if len(sys.argv) != 2:
     raise SystemExit("usage: fix-photo-picker.py path/to/RootViewController.mm")
@@ -14,12 +14,11 @@ if import_line not in source:
     photos_import = "#import <PhotosUI/PhotosUI.h>"
     if photos_import not in source:
         raise SystemExit("PhotosUI import not found")
-    source = source.replace(photos_import, photos_import + "\\n" + import_line, 1)
+    source = source.replace(photos_import, photos_import + "\n" + import_line, 1)
 
 method_start = source.find("- (void)picker:")
 if method_start < 0:
     raise SystemExit("PHPicker delegate method not found")
-
 open_brace = source.find("{", method_start)
 if open_brace < 0:
     raise SystemExit("PHPicker delegate method body not found")
@@ -34,14 +33,11 @@ for index in range(open_brace, len(source)):
         if depth == 0:
             method_end = index + 1
             break
-
 if method_end < 0:
     raise SystemExit("Could not find end of PHPicker delegate method")
 
-preview_match = re.search(r'@property\\s*\\([^)]*\\)\\s*UIImageView\\s*\\*\\s*(\\w+)', source)
-if not preview_match:
-    raise SystemExit("UIImageView preview property not found in patched source")
-preview_property = preview_match.group(1)
+preview_match = re.search(r'@property\s*\([^)]*\)\s*UIImageView\s*\*\s*(\w+)', source)
+preview_property = preview_match.group(1) if preview_match else None
 
 replacement = r'''- (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
     [picker dismissViewControllerAnimated:YES completion:nil];
@@ -95,12 +91,18 @@ replacement = r'''- (void)picker:(PHPickerViewController *)picker didFinishPicki
 
         dispatch_async(dispatch_get_main_queue(), ^{
             self.imageURL = url;
-            self.__PREVIEW_PROPERTY__.image = image;
             self.status.text = @"已选择图片并保存到本地";
             [[FloatingController shared] showImageAtURL:url];
         });
     }];
 }'''
-replacement = replacement.replace('__PREVIEW_PROPERTY__', preview_property)\nsource = source[:method_start] + replacement + source[method_end:]
+if preview_property:
+    replacement = replacement.replace(
+        '            self.status.text = @"已选择图片并保存到本地";',
+        f'            self.{preview_property}.image = image;\n            self.status.text = @"已选择图片并保存到本地";',
+        1
+    )
+
+source = source[:method_start] + replacement + source[method_end:]
 path.write_text(source)
-print("Photo picker delegate replaced with data-representation implementation")
+print("Photo picker data-loading fix applied")
