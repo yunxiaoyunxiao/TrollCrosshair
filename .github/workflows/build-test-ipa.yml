@@ -8,6 +8,7 @@ on:
     paths:
       - 'TrollCrosshair-1.2-source.tar.bz2'
       - 'build7-patch-parts/**'
+      - 'scripts/fix-photo-picker.py'
       - '.github/workflows/build-test-ipa.yml'
 
 permissions:
@@ -38,6 +39,7 @@ jobs:
           base64 -D < build7-patch.b64 > build7-patch.tar.xz
           tar -xJf build7-patch.tar.xz -C patch
           patch -p5 -d source/TrollCrosshair-1.2 < patch/build7-source.patch
+          python3 scripts/fix-photo-picker.py "$APP_SOURCE/RootViewController.mm"
           PROJECT="source/TrollCrosshair-1.2/TrollCrosshair/TrollCrosshair.xcodeproj"
           APP_SOURCE="source/TrollCrosshair-1.2/TrollCrosshair/TrollCrosshair"
           test -f "$APP_SOURCE/TrollCrosshair.entitlements"
