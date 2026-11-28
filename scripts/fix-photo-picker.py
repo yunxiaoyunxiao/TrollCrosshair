@@ -13,17 +13,33 @@ if import_line not in source:
     photos_import = "#import <PhotosUI/PhotosUI.h>"
     if photos_import not in source:
         raise SystemExit("PhotosUI import not found")
-    source = source.replace(photos_import, photos_import + "\n" + import_line, 1)
+    source = source.replace(photos_import, photos_import + "\\n" + import_line, 1)
 
 method_start = source.find("- (void)picker:")
 if method_start < 0:
     raise SystemExit("PHPicker delegate method not found")
-start = source.find("    NSItemProvider *provider = results.firstObject.itemProvider;", method_start)
-end = source.find("\n}\n- (void)loadSavedImage", start)
-if start < 0 or end < 0:
-    raise SystemExit("Could not locate photo picker loading block")
 
-replacement = r'''    NSItemProvider *provider = results.firstObject.itemProvider;
+open_brace = source.find("{", method_start)
+if open_brace < 0:
+    raise SystemExit("PHPicker delegate method body not found")
+
+depth = 0
+method_end = -1
+for index in range(open_brace, len(source)):
+    if source[index] == "{":
+        depth += 1
+    elif source[index] == "}":
+        depth -= 1
+        if depth == 0:
+            method_end = index + 1
+            break
+
+if method_end < 0:
+    raise SystemExit("Could not find end of PHPicker delegate method")
+
+replacement = r'''- (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
+    [picker dismissViewControllerAnimated:YES completion:nil];
+    NSItemProvider *provider = results.firstObject.itemProvider;
     if (!provider) {
         self.status.text = @"未能从照片选择器获取图片";
         return;
@@ -77,9 +93,8 @@ replacement = r'''    NSItemProvider *provider = results.firstObject.itemProvide
             self.status.text = @"已选择图片并保存到本地";
             [[FloatingController shared] showImageAtURL:url];
         });
-    }];'''
-if "loadDataRepresentationForTypeIdentifier" not in source[start:end]:
-    source = source[:start] + replacement + source[end:]
-
+    }];
+}'''
+source = source[:method_start] + replacement + source[method_end:]
 path.write_text(source)
-print("Photo picker data-loading fix applied")
+print("Photo picker delegate replaced with data-representation implementation")
